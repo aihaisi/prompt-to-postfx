@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Prompt-to-PostFX · 提示词驱动实时后处理管线</title>
+<!--STYLES-->
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="dot"></span>
+    <h1>Prompt-to-PostFX</h1>
+    <span class="sub">自然语言 → 参数配方 → WebGL2 实时后处理管线</span>
+  </div>
+  <div class="actions">
+    <select id="engine" title="解析引擎">
+      <option value="local">引擎：本地词典</option>
+      <option value="llm">引擎：LLM（OpenAI 兼容）</option>
+    </select>
+    <button id="btn-upload" class="ghost">上传图片</button>
+    <input type="file" id="file" accept="image/*" hidden>
+    <button id="btn-export" class="primary">导出 PNG</button>
+  </div>
+</header>
+
+<main>
+  <section class="stage">
+    <div class="viewport" id="viewport">
+      <canvas id="view"></canvas>
+      <div class="divider" id="divider" style="left:50%"><button class="handle" id="handle" aria-label="拖拽对比"></button></div>
+      <div class="badge l">原图</div>
+      <div class="badge r">风格化</div>
+      <div class="hud" id="hud">—</div>
+      <div class="busy" id="busy" hidden>解析中…</div>
+    </div>
+    <div class="stage-foot">
+      <button id="btn-compare" class="chip on">对比模式</button>
+      <button id="btn-sample" class="chip">换示例图</button>
+      <span class="perf" id="perf"></span>
+    </div>
+  </section>
+
+  <aside class="panel">
+
+    <div class="block">
+      <div class="block-head"><span class="lbl">提示词</span></div>
+      <textarea id="prompt" spellcheck="false">雨夜霓虹的赛博朋克城市，颗粒感重，轻微故障艺术</textarea>
+      <div class="chips" id="chips"></div>
+      <button id="btn-run" class="primary wide">生成风格</button>
+    </div>
+
+    <div class="block">
+      <div class="block-head">
+        <span class="lbl">AI 决策</span>
+        <span class="tag" id="engine-tag">本地词典</span>
+      </div>
+      <div class="hits" id="hits"></div>
+      <pre class="json" id="json">{}</pre>
+    </div>
+
+    <div class="block">
+      <div class="block-head">
+        <span class="lbl">后处理管线</span>
+        <span class="tag" id="pass-stat">—</span>
+      </div>
+      <div class="flow" id="flow"></div>
+      <div class="passes" id="passes" style="display:flex;flex-direction:column;gap:8px"></div>
+    </div>
+
+    <div class="block llm-cfg" id="llm-cfg" hidden>
+      <span class="lbl">LLM 接入（OpenAI 兼容 / 免 key）</span>
+      <input type="text" id="llm-base" value="http://127.0.0.1:8080/v1" spellcheck="false">
+      <input type="text" id="llm-model" value="qwen3-8b" spellcheck="false">
+      <button id="btn-test" class="ghost wide">测试连接</button>
+      <div class="hint" id="llm-hint">默认指向本机 llama.cpp server（llama-server -m model.gguf --port 8080）。连不上会自动回落到本地词典。</div>
+    </div>
+
+  </aside>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<!--SCRIPTS-->
+</body>
+</html>

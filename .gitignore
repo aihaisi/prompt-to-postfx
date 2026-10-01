@@ -1,0 +1,14 @@
+# 生成物 —— 由 build.py / _gltest.py / _iso.py 随时重建，不进版本库
+_out/
+_gltest.html
+_iso.html
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 依赖与日志
+node_modules/
+*.log

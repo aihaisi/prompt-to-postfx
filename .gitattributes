@@ -1,0 +1,4 @@
+# 统一换行符，避免 Windows / macOS 检出之间来回翻转
+* text=auto eol=lf
+*.bat text eol=crlf
+*.png binary

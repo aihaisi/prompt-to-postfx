@@ -1,0 +1,2169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Prompt-to-PostFX · 提示词驱动实时后处理管线</title>
+<style>
+:root{
+  --bg:#0a0c11; --panel:#11141b; --panel2:#161a23; --line:#232936; --line2:#3a4356;
+  --fg:#e9edf6; --fg2:#98a2b6; --fg3:#5b6478;
+  --acc:#4ea1ff; --acc2:#ff3ea5; --ok:#3ddc97;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{display:flex;flex-direction:column;position:relative;background:var(--bg);color:var(--fg);
+  font-family:var(--sans);font-size:13px;line-height:1.55;overflow:hidden;-webkit-font-smoothing:antialiased}
+button,select,input,textarea{font-family:inherit;font-size:12px;color:var(--fg)}
+button{cursor:pointer;border-radius:8px;border:1px solid var(--line);background:var(--panel2);
+  padding:6px 12px;transition:background .15s,border-color .15s}
+button:hover{border-color:var(--line2);background:#1c212c}
+button.primary{background:#2a6ee0;border-color:#3579ea;color:#fff;font-weight:500}
+button.primary:hover{background:#3579ea}
+button.ghost{background:transparent}
+button.wide{width:100%;padding:8px}
+select,input[type=text]{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+select:focus,input:focus,textarea:focus,button:focus-visible{outline:2px solid rgba(78,161,255,.45);outline-offset:1px}
+
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;
+  padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel);flex:0 0 auto}
+.brand{display:flex;align-items:center;gap:10px;min-width:0}
+.brand h1{margin:0;font-size:14px;font-weight:600;letter-spacing:.01em;white-space:nowrap}
+.brand .sub{color:var(--fg3);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--acc2);box-shadow:0 0 10px var(--acc2);flex:0 0 auto}
+.actions{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+
+main{display:flex;flex:1 1 auto;min-height:0}
+.stage{flex:1 1 auto;display:flex;flex-direction:column;min-width:0;padding:14px;gap:10px}
+.viewport{position:relative;flex:1 1 auto;min-height:0;border-radius:12px;overflow:hidden;
+  background:#05070b;border:1px solid var(--line);user-select:none}
+.viewport canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.divider{position:absolute;top:0;bottom:0;width:2px;background:rgba(255,255,255,.9);cursor:ew-resize}
+.divider .handle{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:30px;height:30px;
+  border-radius:50%;background:rgba(255,255,255,.94);border:0;padding:0;box-shadow:0 2px 8px rgba(0,0,0,.5)}
+.divider .handle::before,.divider .handle::after{content:"";position:absolute;top:50%;width:0;height:0;
+  border-top:5px solid transparent;border-bottom:5px solid transparent;transform:translateY(-50%)}
+.divider .handle::before{left:7px;border-right:6px solid #22262e}
+.divider .handle::after{right:7px;border-left:6px solid #22262e}
+.badge{position:absolute;top:10px;padding:2px 8px;border-radius:6px;font-size:11px;
+  background:rgba(0,0,0,.55);color:#fff;border:1px solid rgba(255,255,255,.18)}
+.badge.l{left:10px}.badge.r{right:10px}
+.hud{position:absolute;bottom:10px;right:10px;font-family:var(--mono);font-size:11px;
+  background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.15);border-radius:6px;
+  padding:2px 8px;color:#dfe6f5;white-space:nowrap}
+.busy{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  background:rgba(5,7,11,.55);font-size:12px;color:var(--fg2);letter-spacing:.06em}
+.busy[hidden]{display:none}
+.stage-foot{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.perf{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--fg3)}
+
+.panel{flex:0 0 352px;border-left:1px solid var(--line);background:var(--panel);
+  overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:16px}
+.block{display:flex;flex-direction:column;gap:8px;min-width:0}
+.block-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.lbl{font-size:11px;letter-spacing:.08em;color:var(--fg3)}
+.tag{font-family:var(--mono);font-size:10.5px;color:var(--fg2);border:1px solid var(--line);
+  border-radius:5px;padding:1px 6px;background:var(--panel2);white-space:nowrap}
+.tag.on{color:var(--ok);border-color:#1e5c43}
+textarea{width:100%;resize:vertical;background:#0b0e14;border:1px solid var(--line);
+  border-radius:10px;padding:9px 10px;line-height:1.6;min-height:56px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--line);background:transparent;border-radius:999px;padding:3px 10px;
+  font-size:11.5px;color:var(--fg2)}
+.chip:hover{color:var(--fg);border-color:var(--line2)}
+.chip.on{background:rgba(78,161,255,.14);border-color:#2f6fd0;color:#bcd9ff}
+.hits{display:flex;flex-wrap:wrap;gap:6px;min-height:20px}
+.hit{border:1px solid var(--line);border-radius:999px;padding:2px 9px;font-size:11px;
+  background:var(--panel2);color:var(--fg2)}
+.hit i{color:var(--fg3);font-style:normal;font-family:var(--mono);margin-left:5px}
+.hit.m{border-color:#4a3a1e;color:#e0b878}
+pre.json{font-family:var(--mono);font-size:11px;line-height:1.55;background:#0b0e14;
+  border:1px solid var(--line);border-radius:10px;padding:10px;margin:0;
+  max-height:230px;overflow:auto;color:#8fd9be;white-space:pre}
+.flow{display:flex;align-items:center;gap:4px;flex-wrap:wrap;font-family:var(--mono);font-size:10.5px}
+.flow span{border:1px solid var(--line);border-radius:6px;padding:1px 6px;color:var(--fg2)}
+.flow span.off{opacity:.32;text-decoration:line-through}
+.flow em{color:var(--fg3);font-style:normal}
+.pass{border:1px solid var(--line);border-radius:10px;background:var(--panel2);overflow:hidden}
+.pass.off{opacity:.45}
+.pass-head{display:flex;align-items:center;gap:9px;padding:8px 10px;cursor:pointer}
+.pass-head input{accent-color:var(--acc);width:14px;height:14px;cursor:pointer;flex:0 0 auto}
+.pass-idx{font-family:var(--mono);font-size:10.5px;color:var(--fg3);flex:0 0 auto}
+.pass-name{font-weight:500;flex:0 0 auto}
+.pass-desc{color:var(--fg3);font-size:11px;margin-left:auto;text-align:right;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pass-params{padding:2px 10px 10px;display:flex;flex-direction:column;gap:7px}
+.p-top{display:flex;justify-content:space-between;font-size:11px;color:var(--fg2)}
+.p-top b{font-weight:400;color:var(--fg);font-family:var(--mono)}
+input[type=range]{width:100%;height:14px;margin:1px 0;accent-color:var(--acc);background:transparent}
+.llm-cfg{border:1px dashed var(--line2);border-radius:10px;padding:10px}
+.llm-cfg[hidden]{display:none}
+.hint{font-size:11px;color:var(--fg3);line-height:1.6;word-break:break-all}
+.hint.ok{color:var(--ok)}
+.toast{position:absolute;bottom:18px;left:50%;transform:translateX(-50%) translateY(10px);
+  background:#1b2130;border:1px solid #2f6fd0;color:#dbe7ff;padding:7px 14px;border-radius:8px;
+  font-size:12px;opacity:0;pointer-events:none;transition:opacity .22s,transform .22s;z-index:20}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+@media (max-width:1000px){
+  body{overflow:auto}
+  main{flex-direction:column}
+  .stage{min-height:54vh}
+  .panel{flex:1 1 auto;border-left:0;border-top:1px solid var(--line)}
+  .brand .sub{display:none}
+}
+@media (max-width:760px){
+  .topbar{flex-wrap:wrap;row-gap:8px}
+  .brand{flex:1 1 auto;min-width:0}
+  .brand h1{overflow:hidden;text-overflow:ellipsis}
+  .actions{flex:1 1 100%}
+  .actions select{flex:1 1 auto;min-width:0}
+}
+
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="dot"></span>
+    <h1>Prompt-to-PostFX</h1>
+    <span class="sub">自然语言 → 参数配方 → WebGL2 实时后处理管线</span>
+  </div>
+  <div class="actions">
+    <select id="engine" title="解析引擎">
+      <option value="local">引擎：本地词典</option>
+      <option value="llm">引擎：LLM（OpenAI 兼容）</option>
+    </select>
+    <button id="btn-upload" class="ghost">上传图片</button>
+    <input type="file" id="file" accept="image/*" hidden>
+    <button id="btn-export" class="primary">导出 PNG</button>
+  </div>
+</header>
+
+<main>
+  <section class="stage">
+    <div class="viewport" id="viewport">
+      <canvas id="view"></canvas>
+      <div class="divider" id="divider" style="left:50%"><button class="handle" id="handle" aria-label="拖拽对比"></button></div>
+      <div class="badge l">原图</div>
+      <div class="badge r">风格化</div>
+      <div class="hud" id="hud">—</div>
+      <div class="busy" id="busy" hidden>解析中…</div>
+    </div>
+    <div class="stage-foot">
+      <button id="btn-compare" class="chip on">对比模式</button>
+      <button id="btn-sample" class="chip">换示例图</button>
+      <span class="perf" id="perf"></span>
+    </div>
+  </section>
+
+  <aside class="panel">
+
+    <div class="block">
+      <div class="block-head"><span class="lbl">提示词</span></div>
+      <textarea id="prompt" spellcheck="false">雨夜霓虹的赛博朋克城市，颗粒感重，轻微故障艺术</textarea>
+      <div class="chips" id="chips"></div>
+      <button id="btn-run" class="primary wide">生成风格</button>
+    </div>
+
+    <div class="block">
+      <div class="block-head">
+        <span class="lbl">AI 决策</span>
+        <span class="tag" id="engine-tag">本地词典</span>
+      </div>
+      <div class="hits" id="hits"></div>
+      <pre class="json" id="json">{}</pre>
+    </div>
+
+    <div class="block">
+      <div class="block-head">
+        <span class="lbl">后处理管线</span>
+        <span class="tag" id="pass-stat">—</span>
+      </div>
+      <div class="flow" id="flow"></div>
+      <div class="passes" id="passes" style="display:flex;flex-direction:column;gap:8px"></div>
+    </div>
+
+    <div class="block llm-cfg" id="llm-cfg" hidden>
+      <span class="lbl">LLM 接入（OpenAI 兼容 / 免 key）</span>
+      <input type="text" id="llm-base" value="http://127.0.0.1:8080/v1" spellcheck="false">
+      <input type="text" id="llm-model" value="qwen3-8b" spellcheck="false">
+      <button id="btn-test" class="ghost wide">测试连接</button>
+      <div class="hint" id="llm-hint">默认指向本机 llama.cpp server（llama-server -m model.gguf --port 8080）。连不上会自动回落到本地词典。</div>
+    </div>
+
+  </aside>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ==================== src/looks.js ==================== */
+/* ============================================================
+   looks.js — 风格解析层
+   自然语言 → 结构化 StyleRecipe（后处理管线参数配方）
+   两条可切换路径：
+     1) 本地词典  parseLocal()    —— 零依赖、零 key、确定性
+     2) 大模型    resolveViaLLM() —— OpenAI 兼容接口（可指向本机 llama.cpp）
+   对外统一入口 resolveStyle()，失败自动回落。
+
+   ---- 参数语义（务必区分，这是本文件唯一容易写错的地方）----
+   锚点 patch  = 该风格的【绝对目标值】。没写的字段 = 保持基础值不变。
+                 多个锚点命中时按占比加权插值，未分配的残差留在基础值上。
+                 例：cyber.patch.gain = [0.90, 0.94, 1.30] 表示"增益就是这三个数"。
+   修饰词 patch = 在结果之上追加的【增量】。
+                 例：颗粒 +0.11 intensity 表示"再加一点颗粒"。
+   ============================================================ */
+(function (root) {
+'use strict';
+
+/* ---------- 基础配方：所有效果的"不变"值 ---------- */
+function baseRecipe() {
+  return {
+    name: '原始',
+    grade:      { exposure: 0, lift: [0, 0, 0], gamma: [1, 1, 1], gain: [1, 1, 1],
+                  sat: 1, temp: 0, contrast: 1, tint: [1, 1, 1] },
+    bloom:      { intensity: 0, threshold: 0.70, radius: 1.0 },
+    edge:       { intensity: 0, threshold: 0.25, color: [0.02, 0.02, 0.03] },
+    halftone:   { mix: 0, scale: 4.0, angle: 0.35 },
+    aberration: { amount: 0, glitch: 0 },
+    scanline:   { intensity: 0, freq: 700 },
+    grain:      { intensity: 0, scale: 1.4 },
+    vignette:   { intensity: 0, softness: 0.55 }
+  };
+}
+
+/* ---------- 风格锚点：字段值都是绝对目标值 ---------- */
+const ANCHORS = [
+  { id: 'cyber', name: '赛博朋克',
+    words: ['赛博朋克', 'cyberpunk', '赛博', '霓虹', 'neon', '未来感', '科技感', '科幻', '义体', '夜城', '电子', '雨夜'],
+    patch: { grade: { gain: [0.90, 0.94, 1.30], lift: [0.01, 0, 0.05], gamma: [1.06, 1.00, 0.94],
+                      sat: 1.30, temp: -0.30, contrast: 1.16, tint: [0.92, 0.96, 1.10] },
+             bloom: { intensity: 0.70, threshold: 0.62, radius: 1.6 },
+             aberration: { amount: 1.0, glitch: 0.25 },
+             scanline: { intensity: 0.16, freq: 900 },
+             grain: { intensity: 0.05, scale: 1.5 },
+             vignette: { intensity: 0.45, softness: 0.60 } } },
+
+  { id: 'film', name: '胶片复古',
+    words: ['胶片', '菲林', '老照片', '复古', '怀旧', '老电影', '年代感', '宝丽来'],
+    patch: { grade: { gain: [1.06, 1.03, 0.98], lift: [0.04, 0.035, 0.03], gamma: [0.96, 0.97, 1.02],
+                      sat: 0.72, temp: 0.22, contrast: 0.94, tint: [1.06, 1.00, 0.94] },
+             grain: { intensity: 0.12, scale: 1.8 },
+             vignette: { intensity: 0.30, softness: 0.75 },
+             bloom: { intensity: 0.22, threshold: 0.72, radius: 1.2 } } },
+
+  { id: 'ink', name: '水墨',
+    words: ['水墨', '国画', '写意', '山水画', '宣纸', '墨色', '留白', '毛笔', '东方'],
+    patch: { grade: { sat: 0.20, contrast: 1.35, exposure: 0.06, temp: 0.05,
+                      gain: [1.02, 1.02, 1.01], gamma: [1.10, 1.10, 1.10] },
+             edge: { intensity: 0.55, threshold: 0.10, color: [0.03, 0.03, 0.04] },
+             bloom: { intensity: 0.30, threshold: 0.78, radius: 2.0 },
+             grain: { intensity: 0.05, scale: 1.0 },
+             vignette: { intensity: 0.25, softness: 0.70 } } },
+
+  { id: 'comic', name: '漫画网点',
+    words: ['漫画', '美漫', '动漫', '网点', '条漫', '黑白漫', '分镜风', 'comic'],
+    patch: { grade: { sat: 1.55, contrast: 1.42, gamma: [1.05, 1.05, 1.05] },
+             edge: { intensity: 0.70, threshold: 0.16, color: [0, 0, 0] },
+             halftone: { mix: 0.55, scale: 3.4, angle: 0.40 },
+             bloom: { intensity: 0.12, threshold: 0.85, radius: 1.0 },
+             grain: { intensity: 0.03, scale: 1.2 } } },
+
+  { id: 'vapor', name: '蒸汽波',
+    words: ['蒸汽波', 'vaporwave', '复古未来', '80年代', '90年代', '千禧', 'y2k', '塑料感'],
+    patch: { grade: { sat: 1.42, temp: -0.15, contrast: 1.05, gain: [1.10, 1.00, 1.14],
+                      gamma: [0.96, 1.00, 0.96], tint: [1.10, 0.94, 1.12] },
+             bloom: { intensity: 0.60, threshold: 0.68, radius: 1.8 },
+             aberration: { amount: 1.4, glitch: 0.10 },
+             scanline: { intensity: 0.12, freq: 560 },
+             grain: { intensity: 0.06, scale: 1.2 },
+             vignette: { intensity: 0.35, softness: 0.60 } } },
+
+  { id: 'horror', name: '恐怖压抑',
+    words: ['恐怖', '惊悚', '阴森', '诡异', '压抑', '恐怖片'],
+    patch: { grade: { sat: 0.45, exposure: -0.18, contrast: 1.30, temp: -0.20,
+                      gain: [0.95, 1.02, 0.98], tint: [0.96, 1.00, 0.92] },
+             vignette: { intensity: 0.85, softness: 0.35 },
+             grain: { intensity: 0.16, scale: 2.2 },
+             bloom: { intensity: 0.15, threshold: 0.80, radius: 1.2 },
+             edge: { intensity: 0.25, threshold: 0.22 } } },
+
+  { id: 'fresh', name: '清新日系',
+    words: ['清新', '日系', '治愈', '通透', '小清新', '晨光', '空气感'],
+    patch: { grade: { exposure: 0.16, sat: 0.90, contrast: 0.86, temp: 0.10,
+                      lift: [0.05, 0.05, 0.045], gamma: [0.94, 0.94, 0.94] },
+             bloom: { intensity: 0.35, threshold: 0.75, radius: 2.2 },
+             vignette: { intensity: 0.08, softness: 0.80 },
+             grain: { intensity: 0.02, scale: 1.0 } } },
+
+  { id: 'glitch', name: '故障艺术',
+    words: ['故障艺术', '故障', 'glitch', '崩坏', '错位', '撕裂', '信号失真'],
+    patch: { aberration: { amount: 2.2, glitch: 0.75 },
+             scanline: { intensity: 0.28, freq: 1100 },
+             grain: { intensity: 0.10, scale: 2.6 },
+             grade: { sat: 1.10, contrast: 1.14, gain: [1.04, 0.98, 1.06] },
+             bloom: { intensity: 0.35, threshold: 0.70, radius: 1.4 } } },
+
+  { id: 'golden', name: '黄昏金色',
+    words: ['黄昏', '落日', '夕阳', '暖阳', '黄金时刻', '午后', '金色', 'golden'],
+    patch: { grade: { temp: 0.55, exposure: 0.08, sat: 1.22, contrast: 1.10, gain: [1.14, 1.05, 0.92] },
+             bloom: { intensity: 0.65, threshold: 0.66, radius: 1.9 },
+             vignette: { intensity: 0.30, softness: 0.65 },
+             grain: { intensity: 0.03, scale: 1.2 } } },
+
+  { id: 'cold', name: '冷冽寒冬',
+    words: ['雪夜', '冷冽', '寒冬', '冰雪', '肃杀', '冷峻', '北国'],
+    patch: { grade: { temp: -0.55, exposure: 0.05, sat: 0.75, contrast: 1.14, gain: [0.98, 1.03, 1.14] },
+             bloom: { intensity: 0.40, threshold: 0.74, radius: 1.6 },
+             grain: { intensity: 0.05, scale: 1.6 },
+             vignette: { intensity: 0.30, softness: 0.60 } } },
+
+  { id: 'mono', name: '黑白极简',
+    words: ['黑白', '灰阶', '单色', '极简', '性冷淡', '无彩色', 'mono'],
+    patch: { grade: { sat: 0.05, contrast: 1.20 },
+             grain: { intensity: 0.07, scale: 1.2 },
+             vignette: { intensity: 0.28, softness: 0.65 },
+             bloom: { intensity: 0.20, threshold: 0.80, radius: 1.4 } } },
+
+  { id: 'dream', name: '梦核柔光',
+    words: ['梦核', 'dreamcore', '柔光', '朦胧', '薄雾', '梦幻', '仙气'],
+    patch: { bloom: { intensity: 0.90, threshold: 0.58, radius: 2.8 },
+             grade: { exposure: 0.10, sat: 0.85, contrast: 0.82, lift: [0.06, 0.06, 0.07] },
+             grain: { intensity: 0.03, scale: 1.0 },
+             vignette: { intensity: 0.12, softness: 0.85 } } },
+
+  { id: 'oil', name: '油画厚涂',
+    words: ['油画', '厚涂', '笔触', '印象派', '颜料', '绘画'],
+    patch: { grade: { sat: 1.35, contrast: 1.18, gamma: [1.02, 1.02, 1.02] },
+             edge: { intensity: 0.35, threshold: 0.12 },
+             halftone: { mix: 0.18, scale: 6.5, angle: 0.20 },
+             bloom: { intensity: 0.25, threshold: 0.76, radius: 1.4 },
+             grain: { intensity: 0.05, scale: 2.0 } } },
+
+  { id: 'cinema', name: '电影感',
+    words: ['电影感', '电影', '高级灰', '青橙', '大片感', '银幕'],
+    patch: { grade: { gain: [1.06, 1.02, 0.94], lift: [0, 0.015, 0.045], gamma: [1.00, 1.00, 1.02],
+                      sat: 1.10, temp: 0.10, contrast: 1.26, tint: [1.04, 1.00, 0.96] },
+             bloom: { intensity: 0.30, threshold: 0.74, radius: 1.5 },
+             vignette: { intensity: 0.35, softness: 0.60 },
+             grain: { intensity: 0.04, scale: 1.3 } } }
+];
+
+/* ---------- 修饰词：用户直接点名的效果，在锚点结果之上追加增量 ---------- */
+const MODIFIERS = [
+  { id: 'grainer', label: '颗粒', words: ['颗粒感', '颗粒', '噪点', '噪波', 'grain'], patch: { grain: { intensity: 0.11 } } },
+  { id: 'vig',     label: '暗角', words: ['暗角', '晕影', '四角压暗', 'vignette'],    patch: { vignette: { intensity: 0.32 } } },
+  { id: 'ca',      label: '色差', words: ['色差', '色散', '紫边', 'chromatic'],      patch: { aberration: { amount: 1.0 } } },
+  { id: 'scan',    label: '扫描线', words: ['扫描线', '显像管', '老电视', 'crt'],     patch: { scanline: { intensity: 0.24 } } },
+  { id: 'glow',    label: '辉光', words: ['发光', '光晕', '辉光', '泛光', 'glow'],     patch: { bloom: { intensity: 0.42 } } },
+  { id: 'line',    label: '描边', words: ['描边', '轮廓线', '勾线', '线稿'],           patch: { edge: { intensity: 0.50 } } },
+  { id: 'halft',   label: '网点', words: ['网点', '半调', '印刷质感', 'halftone'],    patch: { halftone: { mix: 0.35 } } },
+  { id: 'jit',     label: '抖动', words: ['抖动', '信号干扰', '噪波干扰'],            patch: { aberration: { glitch: 0.35 } } },
+  { id: 'hict',    label: '高对比', words: ['高对比', '强对比', '硬朗'],              patch: { grade: { contrast: 0.28 } } },
+  { id: 'loct',    label: '低对比', words: ['低对比', '灰雾', '雾感', '柔和对比'],     patch: { grade: { contrast: -0.24 } } },
+  { id: 'hisa',    label: '高饱和', words: ['高饱和', '浓郁', '艳丽', '鲜艳'],        patch: { grade: { sat: 0.42 } } },
+  { id: 'losa',    label: '低饱和', words: ['低饱和', '褪色', '寡淡', '素雅'],        patch: { grade: { sat: -0.40 } } },
+  { id: 'warm',    label: '偏暖', words: ['暖色', '暖调', '偏暖', '偏黄'],            patch: { grade: { temp: 0.40 } } },
+  { id: 'cool',    label: '偏冷', words: ['冷色', '冷调', '偏冷', '偏蓝'],            patch: { grade: { temp: -0.40 } } },
+  { id: 'up',      label: '提亮', words: ['过曝', '高调', '提亮'],                    patch: { grade: { exposure: 0.20 } } },
+  { id: 'down',    label: '压暗', words: ['压暗', '低调', '昏暗', '暗沉'],            patch: { grade: { exposure: -0.20 } } }
+];
+
+/* ---------- 程度词 ---------- */
+const EMPH_UP   = ['非常', '特别', '超级', '极其', '十分', '格外', '相当', '极', '超', '很'];
+const EMPH_DOWN = ['稍微', '微微', '轻微', '略微', '一点点', '些许', '稍', '略'];
+
+/* ---------- 数值范围（钳制只作兜底：正常路径不该碰到它） ---------- */
+const RANGES = {
+  'grade.exposure': [-0.60, 0.60], 'grade.sat': [0, 2.40], 'grade.temp': [-1, 1],
+  'grade.contrast': [0.40, 2.20], 'grade.gamma': [0.50, 2.00], 'grade.gain': [0.20, 2.00],
+  'grade.lift': [-0.25, 0.35], 'grade.tint': [0.60, 1.40],
+  'bloom.intensity': [0, 2.50], 'bloom.threshold': [0.20, 0.98], 'bloom.radius': [0.40, 4.00],
+  'edge.intensity': [0, 1.50], 'edge.threshold': [0.02, 0.70], 'edge.color': [0, 1],
+  'halftone.mix': [0, 1], 'halftone.scale': [2, 16], 'halftone.angle': [0, 3.14],
+  'aberration.amount': [0, 6], 'aberration.glitch': [0, 1],
+  'scanline.intensity': [0, 0.80], 'scanline.freq': [150, 2200],
+  'grain.intensity': [0, 0.40], 'grain.scale': [0.60, 6.00],
+  'vignette.intensity': [0, 1.30], 'vignette.softness': [0.08, 1.00]
+};
+
+/* ============================================================
+   匹配：长词优先 + 区间互斥，避免「赛博朋克」同时命中「赛博」
+   ============================================================ */
+function scanMatches(text, rules) {
+  const t = String(text || '').toLowerCase();
+  const cands = [];
+  rules.forEach(function (r) {
+    r.words.forEach(function (w) { cands.push({ id: r.id, w: w.toLowerCase() }); });
+  });
+  cands.sort(function (a, b) { return b.w.length - a.w.length; });
+
+  const used = new Array(t.length).fill(false);
+  const hits = [];
+  for (let c = 0; c < cands.length; c++) {
+    const cand = cands[c];
+    let i = 0;
+    while (i <= t.length - cand.w.length) {
+      const idx = t.indexOf(cand.w, i);
+      if (idx < 0) break;
+      let free = true;
+      for (let k = idx; k < idx + cand.w.length; k++) { if (used[k]) { free = false; break; } }
+      if (free) {
+        for (let k = idx; k < idx + cand.w.length; k++) used[k] = true;
+        hits.push({ id: cand.id, word: cand.w, at: idx, len: cand.w.length });
+        i = idx + cand.w.length;
+      } else { i = idx + 1; }
+    }
+  }
+  return hits;
+}
+
+/* 在关键词前后 4 字窗口内找程度词。
+   关键点：程度词不能落在任何已命中关键词的内部 —— 否则「极简」里的「极」、
+   「超现实」里的「超」都会被当成程度词，把权重顶到 1 以上。
+   mask 是所有关键词的字位掩码。 */
+function ewordFound(t, hit, mask, list) {
+  const from = Math.max(0, hit.at - 4);
+  const to = Math.min(t.length, hit.at + hit.len + 2);
+  for (let i = 0; i < list.length; i++) {
+    const w = list[i];
+    let at = t.indexOf(w, from);
+    while (at >= 0 && at + w.length <= to) {
+      let free = true;
+      for (let k = at; k < at + w.length; k++) {
+        if (mask[k] || (k >= hit.at && k < hit.at + hit.len)) { free = false; break; }
+      }
+      if (free) return true;
+      at = t.indexOf(w, at + 1);
+    }
+  }
+  return false;
+}
+
+function emphasisAt(text, hit, mask) {
+  const t = String(text || '').toLowerCase();
+  const m = mask || [];
+  if (ewordFound(t, hit, m, EMPH_DOWN)) return 0.55;
+  if (ewordFound(t, hit, m, EMPH_UP)) return 1.45;
+  const after = t.slice(hit.at + hit.len, hit.at + hit.len + 2);
+  if (/[重强烈浓明显十足]/.test(after)) return 1.35;
+  if (/[淡弱轻]/.test(after)) return 0.60;
+  return 1;
+}
+
+/* 按路径深取值，取不到返回 undefined */
+function deepGet(obj, path) {
+  const parts = String(path).split('.');
+  let v = obj;
+  for (let i = 0; i < parts.length; i++) {
+    if (v === null || v === undefined || typeof v !== 'object') return undefined;
+    v = v[parts[i]];
+  }
+  return v;
+}
+
+/* ============================================================
+   锚点融合：out = base × 残差 + Σ(占比 × 该锚点目标值)
+   某个锚点没写这个字段 → 它的目标值就是 base（等于不改变）
+   未分配的残差留在 base 上，等价于"混合得越弱越接近原始"
+   占比之和若被程度词顶到 1 以上，先归一化，避免过驱动
+   ============================================================ */
+function blendAnchors(entries) {
+  const list = entries.slice();
+  let sum = 0;
+  list.forEach(function (e) { sum += e.k; });
+  if (sum > 1) {
+    list.forEach(function (e) { e.k = e.k / sum; });
+    sum = 1;
+  }
+  const residual = Math.max(0, 1 - sum);
+  const base = baseRecipe();
+  const out = baseRecipe();
+
+  (function walk(node, baseNode, prefix) {
+    Object.keys(node).forEach(function (key) {
+      if (key === 'name') return;
+      const path = prefix ? prefix + '.' + key : key;
+      const nv = node[key];
+      const bv = baseNode ? baseNode[key] : undefined;
+
+      if (typeof nv === 'number') {
+        const b = (typeof bv === 'number') ? bv : 0;
+        let acc = b * residual;
+        list.forEach(function (e) {
+          const v = deepGet(e.patch, path);
+          acc += e.k * ((typeof v === 'number') ? v : b);
+        });
+        node[key] = acc;
+      } else if (Array.isArray(nv)) {
+        const b = Array.isArray(bv) ? bv : nv.map(function () { return 0; });
+        for (let i = 0; i < nv.length; i++) {
+          const bi = (typeof b[i] === 'number') ? b[i] : 0;
+          let acc = bi * residual;
+          list.forEach(function (e) {
+            const v = deepGet(e.patch, path);
+            const vi = (Array.isArray(v) && typeof v[i] === 'number') ? v[i] : bi;
+            acc += e.k * vi;
+          });
+          nv[i] = acc;
+        }
+      } else if (nv && typeof nv === 'object') {
+        walk(nv, bv, path);
+      }
+    });
+  })(out, base, '');
+
+  return out;
+}
+
+/* 修饰词：在结果之上按系数 k 累加增量 */
+function addScaled(target, patch, k) {
+  if (!patch || !k) return;
+  for (const group in patch) {
+    const src = patch[group];
+    if (typeof src === 'number') { target[group] = (target[group] || 0) + src * k; continue; }
+    if (Array.isArray(src)) {
+      if (!Array.isArray(target[group])) target[group] = src.map(function () { return 0; });
+      for (let i = 0; i < src.length; i++) target[group][i] += src[i] * k;
+      continue;
+    }
+    if (typeof src !== 'object' || src === null) continue;
+    if (typeof target[group] !== 'object' || target[group] === null) target[group] = {};
+    for (const key in src) {
+      const v = src[key];
+      if (typeof v === 'number') { target[group][key] = (target[group][key] || 0) + v * k; }
+      else if (Array.isArray(v)) {
+        if (!Array.isArray(target[group][key])) target[group][key] = v.map(function () { return 0; });
+        for (let i = 0; i < v.length; i++) target[group][key][i] += v[i] * k;
+      }
+    }
+  }
+}
+
+/* ============================================================
+   钳制：兜底用。正常路径下所有锚点 + 修饰词组合都应天然落在区间内
+   ============================================================ */
+function clampRecipe(r) {
+  (function walk(node, prefix) {
+    Object.keys(node).forEach(function (key) {
+      const path = prefix ? prefix + '.' + key : key;
+      const v = node[key];
+      if (typeof v === 'number') {
+        const rg = RANGES[path];
+        if (rg) node[key] = Math.min(rg[1], Math.max(rg[0], v));
+      } else if (Array.isArray(v)) {
+        const rg = RANGES[path];
+        if (rg) for (let i = 0; i < v.length; i++) v[i] = Math.min(rg[1], Math.max(rg[0], v[i]));
+      } else if (v && typeof v === 'object') {
+        walk(v, path);
+      }
+    });
+  })(r, '');
+  return r;
+}
+
+/* 用默认值补齐 LLM 可能漏掉的字段 */
+function mergeDefaults(obj) {
+  const base = baseRecipe();
+  const merge = function (dst, src) {
+    if (!src || typeof src !== 'object') return dst;
+    for (const key in src) {
+      const sv = src[key], dv = dst[key];
+      if (typeof sv === 'number') dst[key] = sv;
+      else if (Array.isArray(sv) && Array.isArray(dv)) {
+        for (let i = 0; i < dv.length; i++) if (typeof sv[i] === 'number') dv[i] = sv[i];
+      } else if (sv && typeof sv === 'object' && dv && typeof dv === 'object') merge(dv, sv);
+    }
+    return dst;
+  };
+  merge(base, obj);
+  if (obj && typeof obj.name === 'string') base.name = obj.name.slice(0, 12);
+  return base;
+}
+
+/* ============================================================
+   本地词典解析
+   ============================================================ */
+function parseLocal(text) {
+  const all = ANCHORS.map(function (a) { return { id: a.id, words: a.words }; })
+    .concat(MODIFIERS.map(function (m) { return { id: 'MOD:' + m.id, words: m.words }; }));
+  const hits = scanMatches(text, all);
+
+  // 锚点：w = 命中词长度和（相关度占比）；e = 加权平均程度倍数
+  const acc = {};
+  const modHits = [];
+  // 关键词字位掩码：程度词不能落在关键词内部（"极简"里的"极"不是程度词）
+  const mask = new Array(String(text || '').length).fill(false);
+  hits.forEach(function (h) {
+    for (let i = h.at; i < h.at + h.len; i++) mask[i] = true;
+  });
+
+  hits.forEach(function (h) {
+    if (h.id.indexOf('MOD:') === 0) {
+      modHits.push({ id: h.id.slice(4), word: h.word, scale: emphasisAt(text, h, mask) });
+    } else {
+      const e = emphasisAt(text, h, mask);
+      if (!acc[h.id]) acc[h.id] = { w: 0, ew: 0 };
+      acc[h.id].w += h.len;
+      acc[h.id].ew += h.len * e;
+    }
+  });
+
+  const entries = Object.keys(acc).map(function (id) {
+    return { id: id, w: acc[id].w, e: acc[id].ew / acc[id].w };
+  }).sort(function (a, b) { return b.w - a.w; });
+
+  const total = entries.reduce(function (s, x) { return s + x.w; }, 0);
+  const metaHits = [];
+  let recipe;
+
+  if (total > 0) {
+    const blend = entries.map(function (x) {
+      const def = ANCHORS.find(function (a) { return a.id === x.id; });
+      const share = x.w / total;
+      metaHits.push({ name: def.name, weight: +share.toFixed(2) });
+      return { patch: def.patch, k: share * x.e };
+    });
+    recipe = blendAnchors(blend);
+    recipe.name = metaHits.slice(0, 2).map(function (h) { return h.name; }).join(' · ');
+  } else {
+    recipe = baseRecipe();
+  }
+
+  // 修饰词在锚点结果之上追加（同名最多计 3 次，防止刷词爆表）
+  const modCount = {};
+  const metaMods = [];
+  modHits.forEach(function (m) {
+    modCount[m.id] = (modCount[m.id] || 0) + 1;
+    if (modCount[m.id] > 3) return;
+    const def = MODIFIERS.find(function (x) { return x.id === m.id; });
+    addScaled(recipe, def.patch, m.scale);
+  });
+  Object.keys(modCount).forEach(function (id) {
+    const def = MODIFIERS.find(function (x) { return x.id === id; });
+    metaMods.push({ label: def.label, times: modCount[id] });
+  });
+
+  if (!metaHits.length && metaMods.length) recipe.name = '局部调整';
+  clampRecipe(recipe);
+
+  return {
+    recipe: recipe,
+    meta: { engine: 'local', hits: metaHits, mods: metaMods, words: hits.length }
+  };
+}
+
+/* ============================================================
+   LLM 路径：OpenAI 兼容 /chat/completions
+   决策目标与本地词典完全一致 —— 只输出参数，不生成图像
+   ============================================================ */
+const LLM_SYSTEM = [
+  '你是实时渲染后处理管线的参数决策器。用户用一句中文描述想要的画面风格。',
+  '你的输出会直接驱动一个 GPU 后处理管线，意味着"把画面调成这个样子"，而不是生成新图像。',
+  '只输出一个 JSON 对象，不要解释，不要 Markdown 代码块。所有字段都是【绝对目标值】且必填。',
+  '从未提及的维度一律保持在"不变"值上（见下方括号里的中和值）。',
+  '字段与区间：',
+  'name: string(≤6字)',
+  'grade.exposure: -0.6~0.6 (0=不变)',
+  'grade.lift: [r,g,b] 每项 -0.25~0.35 (0/0/0=不变, 抬暗部)',
+  'grade.gamma: [r,g,b] 每项 0.5~2.0 (1/1/1=不变, 中间调)',
+  'grade.gain: [r,g,b] 每项 0.2~2.0 (1/1/1=不变, 高光增益)',
+  'grade.sat: 0~2.4 (1=不变)',
+  'grade.temp: -1~1 (-1冷/蓝, 1暖/黄, 0=不变)',
+  'grade.contrast: 0.4~2.2 (1=不变)',
+  'grade.tint: [r,g,b] 每项 0.6~1.4 (1/1/1=不变)',
+  'bloom.intensity: 0~2.5 (0=关闭), bloom.threshold: 0.2~0.98, bloom.radius: 0.4~4',
+  'edge.intensity: 0~1.5 (0=关闭), edge.threshold: 0.02~0.7, edge.color: [r,g,b] 0~1',
+  'halftone.mix: 0~1 (0=关闭), halftone.scale: 2~16, halftone.angle: 0~3.14',
+  'aberration.amount: 0~6 (0=关闭), aberration.glitch: 0~1',
+  'scanline.intensity: 0~0.8 (0=关闭), scanline.freq: 150~2200',
+  'grain.intensity: 0~0.4 (0=关闭), grain.scale: 颗粒直径像素 0.6~6',
+  'vignette.intensity: 0~1.3 (0=关闭), vignette.softness: 0.08~1',
+  '输出示例（仅示意格式与量级，数值请按语义重新决定）：',
+  '{"name":"赛博朋克","grade":{"exposure":0,"lift":[0.01,0,0.05],"gamma":[1.06,1,0.94],"gain":[0.9,0.94,1.3],"sat":1.3,"temp":-0.3,"contrast":1.16,"tint":[0.92,0.96,1.1]},"bloom":{"intensity":0.7,"threshold":0.62,"radius":1.6},"edge":{"intensity":0,"threshold":0.25,"color":[0.02,0.02,0.03]},"halftone":{"mix":0,"scale":4,"angle":0.35},"aberration":{"amount":1,"glitch":0.25},"scanline":{"intensity":0.16,"freq":900},"grain":{"intensity":0.05,"scale":1.5},"vignette":{"intensity":0.45,"softness":0.6}}'
+].join('\n');
+
+function stripFence(s) {
+  return String(s || '').replace(/^\s*```(?:json)?/i, '').replace(/```\s*$/, '').trim();
+}
+
+async function postChat(base, payload) {
+  const res = await fetch(base.replace(/\/+$/, '') + '/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status + ' ' + (await res.text()).slice(0, 120));
+  const data = await res.json();
+  return (data.choices && data.choices[0] && data.choices[0].message &&
+          data.choices[0].message.content) || '';
+}
+
+async function resolveViaLLM(text, cfg) {
+  const base = cfg.base || 'http://127.0.0.1:8080/v1';
+  const model = cfg.model || 'local-model';
+  const payload = {
+    model: model,
+    temperature: 0.2,
+    messages: [{ role: 'system', content: LLM_SYSTEM }, { role: 'user', content: text }]
+  };
+  let raw;
+  try {
+    raw = await postChat(base, Object.assign({ response_format: { type: 'json_object' } }, payload));
+  } catch (e) {
+    // 部分服务端不支持 response_format，降级重试一次
+    raw = await postChat(base, payload);
+  }
+  const obj = JSON.parse(stripFence(raw));
+  const recipe = clampRecipe(mergeDefaults(obj));
+  return {
+    recipe: recipe,
+    meta: { engine: 'llm', model: model, hits: [], mods: [], words: 0,
+            note: 'LLM 直接输出参数配方' }
+  };
+}
+
+async function testLLM(cfg) {
+  const base = (cfg.base || '').replace(/\/+$/, '');
+  const res = await fetch(base + '/models', { method: 'GET' });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const data = await res.json();
+  return ((data && data.data) || []).map(function (m) { return m.id; });
+}
+
+/* ============================================================
+   统一入口：引擎可切换，LLM 失败自动回落到本地词典
+   ============================================================ */
+async function resolveStyle(text, engine, cfg) {
+  if (engine === 'llm') {
+    try { return await resolveViaLLM(text, cfg || {}); }
+    catch (e) {
+      const r = parseLocal(text);
+      r.meta.note = 'LLM 不可用（' + e.message + '），已回落本地词典';
+      return r;
+    }
+  }
+  return parseLocal(text);
+}
+
+const API = {
+  baseRecipe: baseRecipe, ANCHORS: ANCHORS, MODIFIERS: MODIFIERS, RANGES: RANGES,
+  scanMatches: scanMatches, emphasisAt: emphasisAt, addScaled: addScaled,
+  blendAnchors: blendAnchors, deepGet: deepGet,
+  clampRecipe: clampRecipe, mergeDefaults: mergeDefaults,
+  parseLocal: parseLocal, resolveViaLLM: resolveViaLLM, resolveStyle: resolveStyle,
+  testLLM: testLLM, LLM_SYSTEM: LLM_SYSTEM
+};
+
+if (typeof module !== 'undefined' && module.exports) module.exports = API;
+root.PPFX = API;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+
+/* ==================== src/sample.js ==================== */
+/* ============================================================
+   sample.js — 程序化示例图
+   不依赖任何外部素材（无 CDN、无图片文件），双击即可出画面。
+   三张内置场景分别覆盖不同视觉特征：
+     0 黄昏城市水岸 —— 强光源 / 高频窗户细节 / 大面积渐变
+     1 雾中山水     —— 低饱和 / 层次 / 大留白（适合水墨类）
+     2 抽象构成     —— 高饱和色块 / 硬边（适合网点与故障类）
+   ============================================================ */
+(function (root) {
+'use strict';
+
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+/* ---- 场景 0：黄昏城市水岸 ---- */
+function sceneCity(ctx, w, h, rnd) {
+  const horizon = h * 0.62;
+
+  const sky = ctx.createLinearGradient(0, 0, 0, horizon);
+  sky.addColorStop(0.00, '#0a0f2e');
+  sky.addColorStop(0.40, '#3a2a63');
+  sky.addColorStop(0.70, '#9d5468');
+  sky.addColorStop(0.88, '#dd8b52');
+  sky.addColorStop(1.00, '#f7c879');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, w, horizon);
+
+  for (let i = 0; i < 16; i++) {
+    const cy = rnd() * horizon * 0.8;
+    ctx.fillStyle = 'rgba(255,214,178,' + (0.04 + rnd() * 0.14).toFixed(3) + ')';
+    ctx.beginPath();
+    ctx.ellipse(rnd() * w, cy, w * (0.10 + rnd() * 0.34), h * (0.006 + rnd() * 0.020), 0, 0, 7);
+    ctx.fill();
+  }
+
+  const sx = w * 0.68, sy = horizon - h * 0.055, sr = h * 0.070;
+  const glow = ctx.createRadialGradient(sx, sy, 0, sx, sy, sr * 7);
+  glow.addColorStop(0.00, 'rgba(255,232,186,0.95)');
+  glow.addColorStop(0.10, 'rgba(255,196,116,0.60)');
+  glow.addColorStop(0.40, 'rgba(255,142,84,0.16)');
+  glow.addColorStop(1.00, 'rgba(255,120,60,0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath(); ctx.arc(sx, sy, sr * 7, 0, 7); ctx.fill();
+  ctx.fillStyle = '#fff4d4';
+  ctx.beginPath(); ctx.arc(sx, sy, sr, 0, 7); ctx.fill();
+
+  const ridge = [[30, 26, 58], [24, 21, 50], [18, 16, 42]];
+  for (let L = 0; L < 3; L++) {
+    const baseY = horizon - h * 0.015 + L * h * 0.014;
+    const amp = h * (0.055 + L * 0.030);
+    const c = ridge[L];
+    ctx.fillStyle = 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',0.94)';
+    ctx.beginPath();
+    ctx.moveTo(0, baseY);
+    for (let x = 0; x <= w; x += w / 56) {
+      const y = baseY - (Math.sin(x * 0.0045 + L * 2.2) * 0.5 + 0.5) * amp - amp * 0.35;
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(w, horizon + h); ctx.lineTo(0, horizon + h); ctx.closePath(); ctx.fill();
+  }
+
+  let x = -w * 0.02;
+  while (x < w) {
+    const bw = w * (0.020 + rnd() * 0.052);
+    const bh = h * (0.030 + Math.pow(rnd(), 2.0) * 0.225);
+    const y = horizon - bh;
+    ctx.fillStyle = '#080a16';
+    ctx.fillRect(x, y, bw, bh);
+    const cols = Math.max(2, Math.floor(bw / (w * 0.0105)));
+    const rows = Math.max(3, Math.floor(bh / (h * 0.021)));
+    for (let i = 0; i < cols; i++) {
+      for (let j = 0; j < rows; j++) {
+        if (rnd() > 0.44) continue;
+        const wx = x + (i + 0.5) * (bw / cols) - w * 0.0022;
+        const wy = y + (j + 0.5) * (bh / rows) - h * 0.0040;
+        ctx.fillStyle = rnd() > 0.74
+          ? 'rgba(150,214,255,0.95)'
+          : 'rgba(255,206,132,' + (0.45 + rnd() * 0.55).toFixed(2) + ')';
+        ctx.fillRect(wx, wy, w * 0.0044, h * 0.0075);
+      }
+    }
+    x += bw + w * 0.0022;
+  }
+
+  const water = ctx.createLinearGradient(0, horizon, 0, h);
+  water.addColorStop(0.00, '#7d4c54');
+  water.addColorStop(0.22, '#3a2a4a');
+  water.addColorStop(1.00, '#0b0d1c');
+  ctx.fillStyle = water;
+  ctx.fillRect(0, horizon, w, h - horizon);
+
+  for (let i = 0; i < 320; i++) {
+    const t = Math.pow(rnd(), 1.6);
+    const ry = horizon + t * (h - horizon);
+    const len = w * (0.008 + rnd() * 0.085) * (1 - t * 0.6);
+    const a = (0.05 + rnd() * 0.22) * (1 - t * 0.85);
+    ctx.fillStyle = rnd() > 0.6
+      ? 'rgba(255,192,124,' + a.toFixed(3) + ')'
+      : 'rgba(255,124,84,' + (a * 0.7).toFixed(3) + ')';
+    ctx.fillRect(rnd() * w, ry, len, Math.max(1, h * 0.0022));
+  }
+
+  /* 水面灯柱倒影。
+     原先只用一条【纵向】linearGradient + 一个 fillRect —— 纵向有衰减，
+     但左右两条边是刀切的直线。画面本身看着还行，可一旦经过调色把对比拉开
+     （尤其赛博朋克那类强增益），这条硬边就变成一块刺眼的矩形亮斑，
+     看起来像后处理链出了 bug，实际是这里。
+     一个 gradient 表达不了两个方向，所以沿 y 切 64 条窄带逐条给 alpha：
+     每条内部用【横向】软边渐变，带与带之间让 alpha/宽度随深度连续变化。 */
+  const BANDS = 64;
+  const wDepth = h - horizon;
+  ctx.save();
+  ctx.beginPath(); ctx.rect(0, horizon, w, wDepth); ctx.clip();
+  for (let i = 0; i < BANDS; i++) {
+    const t = (i + 0.5) / BANDS;
+    const by = horizon + t * wDepth;
+    const bh = wDepth / BANDS + 1;                 // +1 让相邻带重叠，避免露缝
+    const halfW = w * (0.014 + t * 0.030);         // 向下变宽，符合水面倒影的观感
+    const a = 0.55 * Math.pow(1 - t, 1.5);         // 向下衰减
+    if (a < 0.004) continue;
+    const bg = ctx.createLinearGradient(sx - halfW, 0, sx + halfW, 0);
+    bg.addColorStop(0.00, 'rgba(255,206,150,0)');
+    bg.addColorStop(0.50, 'rgba(255,222,172,' + a.toFixed(3) + ')');
+    bg.addColorStop(1.00, 'rgba(255,206,150,0)');
+    ctx.fillStyle = bg;
+    ctx.fillRect(sx - halfW, by, halfW * 2, bh);
+  }
+  ctx.restore();
+
+  ctx.fillStyle = 'rgba(255,232,196,0.45)';
+  ctx.fillRect(0, horizon - 1.5, w, 3);
+}
+
+/* ---- 场景 1：雾中山水 ---- */
+function sceneInk(ctx, w, h, rnd) {
+  const g = ctx.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0.00, '#f0f3f0');
+  g.addColorStop(0.55, '#dbe1dc');
+  g.addColorStop(1.00, '#e9ece8');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  ctx.beginPath(); ctx.arc(w * 0.76, h * 0.15, h * 0.058, 0, 7); ctx.fill();
+
+  const layers = 6, waterY = h * 0.80;
+  for (let L = 0; L < layers; L++) {
+    const t = L / (layers - 1);
+    const baseY = h * (0.30 + t * 0.50);
+    const amp = h * (0.185 - t * 0.115);
+    const alpha = 0.16 + t * 0.52;
+    const v = Math.round(58 + 42 * t);
+    ctx.fillStyle = 'rgba(' + v + ',' + (v + 8) + ',' + (v + 8) + ',' + alpha.toFixed(2) + ')';
+
+    ctx.beginPath();
+    ctx.moveTo(-10, waterY);
+    for (let x = -10; x <= w + 10; x += w / 72) {
+      const y = baseY
+        - (Math.sin(x * 0.0040 + L * 3.1) * 0.5 + 0.5) * amp
+        - Math.sin(x * 0.0105 + L * 1.7) * amp * 0.20;
+      ctx.lineTo(x, Math.min(y, waterY));
+    }
+    ctx.lineTo(w + 10, waterY); ctx.closePath(); ctx.fill();
+
+    const mg = ctx.createLinearGradient(0, baseY - amp * 0.20, 0, waterY);
+    mg.addColorStop(0.00, 'rgba(246,249,247,0)');
+    mg.addColorStop(0.40, 'rgba(246,249,247,' + (0.48 - t * 0.34).toFixed(2) + ')');
+    mg.addColorStop(1.00, 'rgba(246,249,247,0.10)');
+    ctx.fillStyle = mg;
+    ctx.fillRect(0, baseY - amp * 0.20, w, waterY - baseY + amp * 0.20);
+  }
+
+  const wg = ctx.createLinearGradient(0, waterY, 0, h);
+  wg.addColorStop(0.00, '#c9cfca');
+  wg.addColorStop(1.00, '#eef1ee');
+  ctx.fillStyle = wg;
+  ctx.fillRect(0, waterY, w, h - waterY);
+
+  for (let i = 0; i < 130; i++) {
+    const ry = waterY + Math.pow(rnd(), 1.4) * (h - waterY);
+    const a = 0.10 + rnd() * 0.24;
+    ctx.fillStyle = 'rgba(120,132,128,' + a.toFixed(3) + ')';
+    ctx.fillRect(rnd() * w, ry, w * (0.02 + rnd() * 0.12), Math.max(1, h * 0.0018));
+  }
+  ctx.fillStyle = 'rgba(150,160,156,0.55)';
+  ctx.fillRect(0, waterY - 1, w, 2);
+}
+
+/* ---- 场景 2：抽象构成 ---- */
+function sceneAbstract(ctx, w, h, rnd) {
+  ctx.fillStyle = '#101219';
+  ctx.fillRect(0, 0, w, h);
+
+  const cols = ['#e94f37', '#3ec6c6', '#f6c75a', '#8e6bd8', '#f4f4f4', '#1f6feb', '#39d98a'];
+  for (let i = 0; i < 30; i++) {
+    ctx.save();
+    ctx.translate(rnd() * w, rnd() * h);
+    ctx.rotate(rnd() * Math.PI);
+    ctx.globalAlpha = 0.22 + rnd() * 0.62;
+    ctx.fillStyle = cols[Math.floor(rnd() * cols.length)];
+    const r = Math.min(w, h) * (0.025 + rnd() * 0.155);
+    if (rnd() > 0.5) { ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.fill(); }
+    else { ctx.fillRect(-r * 0.7, -r * 0.7, r * 1.4, r * 1.4); }
+    ctx.restore();
+  }
+
+  ctx.globalAlpha = 0.16;
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = Math.max(1, w / 1400);
+  for (let x = 0; x < w; x += w / 30) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
+  for (let y = 0; y < h; y += h / 17) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
+  ctx.globalAlpha = 1;
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+  ctx.lineWidth = Math.max(2, w / 500);
+  ctx.strokeRect(w * 0.06, h * 0.10, w * 0.30, h * 0.34);
+  ctx.beginPath();
+  ctx.moveTo(w * 0.55, h * 0.86);
+  ctx.bezierCurveTo(w * 0.68, h * 0.44, w * 0.86, h * 0.72, w * 0.95, h * 0.30);
+  ctx.stroke();
+}
+
+const SCENES = [
+  { name: '黄昏城市水岸', draw: sceneCity },
+  { name: '雾中山水',     draw: sceneInk },
+  { name: '抽象构成',     draw: sceneAbstract }
+];
+
+function makeSample(kind, w, h) {
+  const idx = ((kind % SCENES.length) + SCENES.length) % SCENES.length;
+  const c = document.createElement('canvas');
+  c.width = Math.max(2, Math.round(w));
+  c.height = Math.max(2, Math.round(h));
+  const ctx = c.getContext('2d');
+  const rnd = mulberry32(20261001 + idx * 7919);
+  SCENES[idx].draw(ctx, c.width, c.height, rnd);
+  c.__name = SCENES[idx].name;
+  return c;
+}
+
+const API = { makeSample: makeSample, SCENES: SCENES };
+
+if (typeof module !== 'undefined' && module.exports) module.exports = API;
+root.PPFX_SAMPLE = API;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+
+/* ==================== src/renderer.js ==================== */
+/* ============================================================
+   renderer.js — WebGL2 实时后处理管线
+   ------------------------------------------------------------
+   设计要点（这是"管线"本身，不是一堆散装滤镜）：
+   1. 声明式注册表 PASS_DEFS —— 每个 pass 只描述：读哪张图、写哪张图、
+      需要哪些 uniform（按 recipe 路径绑定）、UI 暴露哪些可调参数。
+      新增一个效果 = 往表里加一条，不需要改执行器。
+   2. 执行器只认三种 pass 类型：
+        full  → 读当前链 → 写 ping-pong 里的另一张 → 交换
+        aux   → 读指定源 → 写辅助 RT（不进主链），例如半分辨率辉光
+        final → 读当前链（+辅助图）→ 写到屏幕
+   3. ping-pong 双 RT：读写的 RT 永不同一，避免反馈环。
+   4. 所有 pass 可独立关闭，执行器直接跳过 —— 这条链是可插拔的。
+   5. 每个 pass 编译失败只上报并禁用自身，不拖垮整条管线。
+   ============================================================ */
+(function (root) {
+'use strict';
+
+/* ---------------- 着色器 ---------------- */
+
+const VS = [
+  '#version 300 es',
+  'layout(location = 0) in vec2 aPos;',
+  'out vec2 vUV;',
+  'void main(){',
+  '  vUV = aPos * 0.5 + 0.5;',
+  '  gl_Position = vec4(aPos, 0.0, 1.0);',
+  '}'
+].join('\n');
+
+const PRELUDE = [
+  '#version 300 es',
+  'precision highp float;',
+  'in vec2 vUV;',
+  'out vec4 fragColor;',
+  'float luma(vec3 c){ return dot(c, vec3(0.2126, 0.7152, 0.0722)); }',
+  'float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123); }'
+].join('\n');
+
+const FS = {
+
+  /* 把上传的图按 cover 方式归一到画布尺寸，成为整条链的稳定输入 */
+  cover: [
+    'uniform sampler2D uTex;',
+    'uniform vec2 uScale;',
+    'uniform vec2 uOffset;',
+    'void main(){',
+    '  fragColor = vec4(texture(uTex, vUV * uScale + uOffset).rgb, 1.0);',
+    '}'
+  ].join('\n'),
+
+  /* 色彩分级：曝光 → 增益/抬升 → 伽马 → 色温 → 对比 → 饱和 → 染色 */
+  grade: [
+    'uniform sampler2D uTex;',
+    'uniform float uExposure, uSat, uTemp, uContrast;',
+    'uniform vec3 uLift, uGamma, uGain, uTint;',
+    'void main(){',
+    '  vec3 c = texture(uTex, vUV).rgb;',
+    '  c *= (1.0 + uExposure);',
+    '  c = c * uGain + uLift;',
+    '  c = pow(max(c, 0.0), 1.0 / max(uGamma, vec3(0.05)));',
+    '  c.r *= 1.0 + uTemp * 0.22;',
+    '  c.b *= 1.0 - uTemp * 0.22;',
+    '  c = (c - 0.5) * uContrast + 0.5;',
+    '  float l = luma(c);',
+    '  c = mix(vec3(l), c, uSat);',
+    '  c *= uTint;',
+    '  fragColor = vec4(clamp(c, 0.0, 1.0), 1.0);',
+    '}'
+  ].join('\n'),
+
+  /* 辉光亮部提取 */
+  bright: [
+    'uniform sampler2D uTex;',
+    'uniform float uThreshold;',
+    'void main(){',
+    '  vec3 c = texture(uTex, vUV).rgb;',
+    '  float k = smoothstep(uThreshold, uThreshold + 0.12, luma(c));',
+    '  fragColor = vec4(c * k, 1.0);',
+    '}'
+  ].join('\n'),
+
+  /* 可分离高斯：9 tap */
+  blur: [
+    'uniform sampler2D uTex;',
+    'uniform vec2 uTexel, uDir;',
+    'uniform float uRadius;',
+    'void main(){',
+    '  vec2 d = uDir * uTexel * max(uRadius, 0.4);',
+    '  vec3 s  = texture(uTex, vUV).rgb * 0.2270270;',
+    '  s += (texture(uTex, vUV + d * 1.0).rgb + texture(uTex, vUV - d * 1.0).rgb) * 0.1945946;',
+    '  s += (texture(uTex, vUV + d * 2.0).rgb + texture(uTex, vUV - d * 2.0).rgb) * 0.1216216;',
+    '  s += (texture(uTex, vUV + d * 3.0).rgb + texture(uTex, vUV - d * 3.0).rgb) * 0.0540540;',
+    '  s += (texture(uTex, vUV + d * 4.0).rgb + texture(uTex, vUV - d * 4.0).rgb) * 0.0162162;',
+    '  fragColor = vec4(s, 1.0);',
+    '}'
+  ].join('\n'),
+
+  /* Sobel 描边 */
+  edge: [
+    'uniform sampler2D uTex;',
+    'uniform vec2 uTexel;',
+    'uniform float uIntensity, uThreshold;',
+    'uniform vec3 uColor;',
+    'void main(){',
+    '  vec3 c = texture(uTex, vUV).rgb;',
+    '  float tl = luma(texture(uTex, vUV + uTexel * vec2(-1.0, 1.0)).rgb);',
+    '  float t  = luma(texture(uTex, vUV + uTexel * vec2( 0.0, 1.0)).rgb);',
+    '  float tr = luma(texture(uTex, vUV + uTexel * vec2( 1.0, 1.0)).rgb);',
+    '  float ml = luma(texture(uTex, vUV + uTexel * vec2(-1.0, 0.0)).rgb);',
+    '  float mr = luma(texture(uTex, vUV + uTexel * vec2( 1.0, 0.0)).rgb);',
+    '  float bl = luma(texture(uTex, vUV + uTexel * vec2(-1.0,-1.0)).rgb);',
+    '  float b  = luma(texture(uTex, vUV + uTexel * vec2( 0.0,-1.0)).rgb);',
+    '  float br = luma(texture(uTex, vUV + uTexel * vec2( 1.0,-1.0)).rgb);',
+    '  float gx = (tr + 2.0 * mr + br) - (tl + 2.0 * ml + bl);',
+    '  float gy = (tl + 2.0 * t + tr) - (bl + 2.0 * b + br);',
+    '  float g = sqrt(gx * gx + gy * gy);',
+    '  float e = clamp(smoothstep(uThreshold, uThreshold + 0.18, g) * uIntensity, 0.0, 1.0);',
+    '  fragColor = vec4(mix(c, uColor, e), 1.0);',
+    '}'
+  ].join('\n'),
+
+  /* 径向色散 + 行错位（故障） */
+  aberration: [
+    'uniform sampler2D uTex;',
+    'uniform float uAmount, uGlitch, uTime;',
+    'void main(){',
+    '  vec2 uv = vUV;',
+    '  if (uGlitch > 0.001) {',
+    '    float band = floor(uv.y * 42.0);',
+    '    float r = hash(vec2(band, floor(uTime * 9.0)));',
+    '    if (r > 0.88) uv.x += ((r - 0.88) * 8.0 - 0.4) * uGlitch * 0.08;',
+    '  }',
+    '  vec2 off = (uv - 0.5) * (uAmount * 0.006);',
+    '  fragColor = vec4(texture(uTex, uv + off).r,',
+    '                   texture(uTex, uv).g,',
+    '                   texture(uTex, uv - off).b, 1.0);',
+    '}'
+  ].join('\n'),
+
+  /* 网点（半调屏） */
+  halftone: [
+    'uniform sampler2D uTex;',
+    'uniform vec2 uRes;',
+    'uniform float uMix, uScale, uAngle;',
+    'void main(){',
+    '  vec3 c = texture(uTex, vUV).rgb;',
+    '  float s = sin(uAngle), co = cos(uAngle);',
+    '  vec2 p = mat2(co, -s, s, co) * (vUV * uRes) / max(uScale, 1.0);',
+    '  vec2 cell = fract(p) - 0.5;',
+    '  float d = length(cell) * 2.0;',
+    '  float l = clamp(luma(c), 0.03, 0.97);',
+    '  float dotm = 1.0 - smoothstep(l, l + 0.10, d);',
+    '  vec3 ht = c * mix(0.18, 1.0, dotm);',
+    '  fragColor = vec4(mix(c, ht, clamp(uMix, 0.0, 1.0)), 1.0);',
+    '}'
+  ].join('\n'),
+
+  /* 合成输出：辉光叠加 → 扫描线 → 颗粒 → 暗角 */
+  composite: [
+    'uniform sampler2D uTex, uBloom;',
+    'uniform vec2 uRes;',
+    'uniform float uBloomIntensity, uScanIntensity, uScanFreq;',
+    'uniform float uGrainIntensity, uGrainScale, uVignette, uVigSoft, uTime;',
+    'void main(){',
+    '  vec3 c = texture(uTex, vUV).rgb;',
+    '  if (uBloomIntensity > 0.001) c += texture(uBloom, vUV).rgb * uBloomIntensity;',
+    '  if (uScanIntensity > 0.001) c *= 1.0 - uScanIntensity * (0.5 + 0.5 * sin(vUV.y * uScanFreq));',
+    '  if (uGrainIntensity > 0.001) {',
+    '    // 颗粒格子必须按像素定尺寸：若按 UV 定，画布一变密格子就小于一个像素，',
+    '    // floor() 会跳格采样，噪点退化成规则的网格摩尔纹。',
+    '    float g = hash(floor(vUV * uRes / max(uGrainScale, 0.5)) + vec2(uTime * 61.0, uTime * 37.0));',
+    '    c += (g - 0.5) * uGrainIntensity;',
+    '  }',
+    '  if (uVignette > 0.001) {',
+    '    float r = length((vUV - 0.5) * 2.0);',
+    '    c *= 1.0 - uVignette * smoothstep(mix(0.95, 0.15, uVigSoft), 1.05, r);',
+    '  }',
+    '  fragColor = vec4(clamp(c, 0.0, 1.0), 1.0);',
+    '}'
+  ].join('\n')
+};
+
+/* ---------------- pass 注册表 ---------------- */
+/* kind: full | aux | final                                    */
+/* uniforms: [着色器变量名, recipe 路径] —— 绑定时自动取值        */
+/* params: UI 暴露给美术的可调参数（写回 recipe 同一路径）        */
+const PASS_DEFS = [
+  {
+    id: 'grade', name: '色彩分级', desc: 'lift / gamma / gain · 饱和 · 色温 · 对比',
+    kind: 'full', fs: 'grade',
+    uniforms: [['uExposure', 'grade.exposure'], ['uLift', 'grade.lift'], ['uGamma', 'grade.gamma'],
+               ['uGain', 'grade.gain'], ['uSat', 'grade.sat'], ['uTemp', 'grade.temp'],
+               ['uContrast', 'grade.contrast'], ['uTint', 'grade.tint']],
+    autoOn: function () { return true; },
+    params: [
+      { path: 'grade.exposure', label: '曝光', min: -0.6, max: 0.6, step: 0.01 },
+      { path: 'grade.contrast', label: '对比度', min: 0.4, max: 2.2, step: 0.01 },
+      { path: 'grade.sat', label: '饱和度', min: 0, max: 2.4, step: 0.01 },
+      { path: 'grade.temp', label: '色温', min: -1, max: 1, step: 0.01 }
+    ]
+  },
+  {
+    id: 'bloomBright', name: '辉光 · 亮部提取', desc: '阈值提取，半分辨率',
+    kind: 'aux', fs: 'bright', readFrom: 'chain', writeTo: 'bloomA', scale: 0.5,
+    uniforms: [['uThreshold', 'bloom.threshold']],
+    autoOn: function (r) { return r.bloom.intensity > 0.004; },
+    params: [{ path: 'bloom.threshold', label: '阈值', min: 0.2, max: 0.98, step: 0.01 }]
+  },
+  {
+    id: 'bloomBlurH', name: '辉光 · 横向模糊', desc: '9 tap 高斯 · 半分辨率',
+    kind: 'aux', fs: 'blur', readFrom: 'bloomA', writeTo: 'bloomB', scale: 0.5, dir: [1, 0],
+    uniforms: [['uRadius', 'bloom.radius']],
+    autoOn: function (r) { return r.bloom.intensity > 0.004; },
+    params: [{ path: 'bloom.radius', label: '半径', min: 0.4, max: 4, step: 0.05 }]
+  },
+  {
+    id: 'bloomBlurV', name: '辉光 · 纵向模糊', desc: '9 tap 高斯 · 半分辨率',
+    kind: 'aux', fs: 'blur', readFrom: 'bloomB', writeTo: 'bloomA', scale: 0.5, dir: [0, 1],
+    uniforms: [['uRadius', 'bloom.radius']],
+    autoOn: function (r) { return r.bloom.intensity > 0.004; },
+    params: []
+  },
+  {
+    id: 'edge', name: '描边', desc: 'Sobel 边缘检测',
+    kind: 'full', fs: 'edge',
+    uniforms: [['uIntensity', 'edge.intensity'], ['uThreshold', 'edge.threshold'], ['uColor', 'edge.color']],
+    autoOn: function (r) { return r.edge.intensity > 0.004; },
+    params: [
+      { path: 'edge.intensity', label: '强度', min: 0, max: 1.5, step: 0.01 },
+      { path: 'edge.threshold', label: '阈值', min: 0.02, max: 0.7, step: 0.005 }
+    ]
+  },
+  {
+    id: 'aberration', name: '色差 / 故障', desc: '径向色散 + 行错位',
+    kind: 'full', fs: 'aberration',
+    uniforms: [['uAmount', 'aberration.amount'], ['uGlitch', 'aberration.glitch']],
+    autoOn: function (r) { return r.aberration.amount > 0.004 || r.aberration.glitch > 0.004; },
+    params: [
+      { path: 'aberration.amount', label: '色散', min: 0, max: 6, step: 0.05 },
+      { path: 'aberration.glitch', label: '错位', min: 0, max: 1, step: 0.01 }
+    ]
+  },
+  {
+    id: 'halftone', name: '网点', desc: '可调角度半调屏',
+    kind: 'full', fs: 'halftone',
+    uniforms: [['uMix', 'halftone.mix'], ['uScale', 'halftone.scale'], ['uAngle', 'halftone.angle']],
+    autoOn: function (r) { return r.halftone.mix > 0.004; },
+    params: [
+      { path: 'halftone.mix', label: '混合', min: 0, max: 1, step: 0.01 },
+      { path: 'halftone.scale', label: '网点尺寸', min: 2, max: 16, step: 0.1 }
+    ]
+  },
+  {
+    id: 'composite', name: '合成输出', desc: '辉光叠加 · 扫描线 · 颗粒 · 暗角',
+    kind: 'final', fs: 'composite',
+    uniforms: [['uBloomIntensity', 'bloom.intensity'],
+               ['uScanIntensity', 'scanline.intensity'], ['uScanFreq', 'scanline.freq'],
+               ['uGrainIntensity', 'grain.intensity'], ['uGrainScale', 'grain.scale'],
+               ['uVignette', 'vignette.intensity'], ['uVigSoft', 'vignette.softness']],
+    autoOn: function () { return true; },
+    params: [
+      { path: 'bloom.intensity', label: '辉光强度', min: 0, max: 2.5, step: 0.01 },
+      { path: 'scanline.intensity', label: '扫描线', min: 0, max: 0.8, step: 0.005 },
+      { path: 'grain.intensity', label: '颗粒', min: 0, max: 0.4, step: 0.002 },
+      { path: 'grain.scale', label: '颗粒粗细(px)', min: 0.6, max: 6, step: 0.1 },
+      { path: 'vignette.intensity', label: '暗角', min: 0, max: 1.3, step: 0.01 }
+    ]
+  }
+];
+
+/* ---------------- GL 工具 ---------------- */
+function pick(obj, path) {
+  const parts = String(path).split('.');
+  let v = obj;
+  for (let i = 0; i < parts.length; i++) {
+    if (v === null || v === undefined) return 0;
+    v = v[parts[i]];
+  }
+  return (v === undefined) ? 0 : v;
+}
+
+function setUniform(gl, loc, v) {
+  if (loc === null || loc === undefined) return;
+  if (typeof v === 'number') { gl.uniform1f(loc, v); return; }
+  if (Array.isArray(v)) {
+    if (v.length === 2) gl.uniform2f(loc, v[0], v[1]);
+    else if (v.length === 3) gl.uniform3f(loc, v[0], v[1], v[2]);
+    else if (v.length === 4) gl.uniform4f(loc, v[0], v[1], v[2], v[3]);
+  }
+}
+
+function compile(gl, type, src) {
+  const sh = gl.createShader(type);
+  gl.shaderSource(sh, src);
+  gl.compileShader(sh);
+  if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+    const log = gl.getShaderInfoLog(sh);
+    gl.deleteShader(sh);
+    throw new Error(log || 'unknown compile error');
+  }
+  return sh;
+}
+
+function makeProgram(gl, fragBody) {
+  const p = gl.createProgram();
+  const vs = compile(gl, gl.VERTEX_SHADER, VS);
+  const fs = compile(gl, gl.FRAGMENT_SHADER, PRELUDE + '\n' + fragBody);
+  gl.attachShader(p, vs);
+  gl.attachShader(p, fs);
+  gl.linkProgram(p);
+  const ok = gl.getProgramParameter(p, gl.LINK_STATUS);
+  gl.deleteShader(vs);
+  gl.deleteShader(fs);
+  if (!ok) {
+    const log = gl.getProgramInfoLog(p);
+    gl.deleteProgram(p);
+    throw new Error(log || 'link failed');
+  }
+  return p;
+}
+
+function makeRT(gl, w, h) {
+  w = Math.max(1, Math.round(w));
+  h = Math.max(1, Math.round(h));
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const fbo = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return { tex: tex, fbo: fbo, w: w, h: h };
+}
+
+function killRT(gl, rt) {
+  if (!rt) return;
+  gl.deleteTexture(rt.tex);
+  gl.deleteFramebuffer(rt.fbo);
+}
+
+/* ============================================================
+   Pipeline
+   ============================================================ */
+function Pipeline(gl, canvas, passes) {
+  this.gl = gl;
+  this.canvas = canvas;
+  this.passes = passes;               // 由 app 持有，UI 与渲染共享同一份状态
+  this.errors = [];
+  this.ready = false;
+  this.srcW = 2; this.srcH = 2;
+  this.canvasW = 2; this.canvasH = 2;
+  this.coverScale = [1, 1];
+  this.coverOffset = [0, 0];
+  this.bloomTex = null;
+  this.lastPassCount = 0;
+
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+  gl.disable(gl.DEPTH_TEST);
+  gl.disable(gl.BLEND);
+  gl.clearColor(0, 0, 0, 1);
+
+  // 全屏三角形
+  this.vao = gl.createVertexArray();
+  gl.bindVertexArray(this.vao);
+  const vbo = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.bindVertexArray(null);
+
+  // 黑纹理：bloom 缺席时的占位，避免分支绑定的未定义行为
+  this.black = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, this.black);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
+                new Uint8Array([0, 0, 0, 255]));
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+  // 输入图纹理
+  this.srcTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, this.srcTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
+                new Uint8Array([20, 20, 26, 255]));
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+  this.coverProgram = makeProgram(gl, FS.cover);
+  this.coverLoc = {};
+
+  // 逐 pass 编译；单个失败只禁用自身
+  const self = this;
+  passes.forEach(function (p) {
+    try {
+      p.program = makeProgram(gl, FS[p.def.fs]);
+      p.loc = {};
+    } catch (e) {
+      p.program = null;
+      p.broken = true;
+      p.enabled = false;
+      self.errors.push({ pass: p.def.id, message: e.message });
+    }
+  });
+
+  this.ready = true;
+}
+
+Pipeline.prototype.autoEnable = function (recipe) {
+  this.passes.forEach(function (p) {
+    if (p.broken) { p.enabled = false; return; }
+    p.enabled = p.def.autoOn ? !!p.def.autoOn(recipe) : true;
+  });
+};
+
+Pipeline.prototype.resize = function (w, h) {
+  w = Math.max(2, Math.round(w));
+  h = Math.max(2, Math.round(h));
+  if (w === this.canvasW && h === this.canvasH && this.rt) return false;
+  const gl = this.gl;
+  this.canvasW = w; this.canvasH = h;
+  this.canvas.width = w; this.canvas.height = h;
+
+  killRT(gl, this.rt && this.rt[0]);
+  killRT(gl, this.rt && this.rt[1]);
+  killRT(gl, this.auxA);
+  killRT(gl, this.auxB);
+
+  this.rt = [makeRT(gl, w, h), makeRT(gl, w, h)];
+  this.auxA = makeRT(gl, w * 0.5, h * 0.5);
+  this.auxB = makeRT(gl, w * 0.5, h * 0.5);
+  this.updateCover();
+  return true;
+};
+
+Pipeline.prototype.updateCover = function () {
+  const sa = this.srcW / this.srcH;
+  const ta = this.canvasW / this.canvasH;
+  let sx = 1, sy = 1;
+  if (sa > ta) sx = ta / sa; else sy = sa / ta;
+  this.coverScale = [sx, sy];
+  this.coverOffset = [(1 - sx) * 0.5, (1 - sy) * 0.5];
+};
+
+Pipeline.prototype.uploadSource = function (source) {
+  const gl = this.gl;
+  this.srcW = source.width || source.naturalWidth || 2;
+  this.srcH = source.height || source.naturalHeight || 2;
+  gl.bindTexture(gl.TEXTURE_2D, this.srcTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, source);
+  // 源图通常远大于画布，cover 这一步是缩小采样。
+  // 没有 mipmap 时 LINEAR 只取 2x2 纹素，高频细节（灯窗、噪点、细线条）
+  // 会走样并把整体亮度带偏 —— 表现为"什么都没调，画面却和原图不一样"。
+  // WebGL2 支持 NPOT mipmap，直接生成即可。
+  if (gl.getParameter(gl.VERSION)) {
+    try { gl.generateMipmap(gl.TEXTURE_2D); } catch (e) {}
+  }
+  this.updateCover();
+};
+
+Pipeline.prototype._uloc = function (program, cache, name) {
+  if (!(name in cache)) cache[name] = this.gl.getUniformLocation(program, name);
+  return cache[name];
+};
+
+Pipeline.prototype._draw = function (pass, readTex, writeRT, recipe, time) {
+  const gl = this.gl;
+  const d = pass.def;
+  const W = writeRT ? writeRT.w : this.canvasW;
+  const H = writeRT ? writeRT.h : this.canvasH;
+
+  gl.useProgram(pass.program);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, writeRT ? writeRT.fbo : null);
+  gl.viewport(0, 0, W, H);
+
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, readTex);
+  gl.uniform1i(this._uloc(pass.program, pass.loc, 'uTex'), 0);
+
+  if (d.fs === 'composite') {
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, this.bloomTex || this.black);
+    gl.uniform1i(this._uloc(pass.program, pass.loc, 'uBloom'), 1);
+  }
+
+  const u = d.uniforms || [];
+  for (let i = 0; i < u.length; i++) {
+    setUniform(gl, this._uloc(pass.program, pass.loc, u[i][0]), pick(recipe, u[i][1]));
+  }
+
+  // 内建 uniform
+  setUniform(gl, this._uloc(pass.program, pass.loc, 'uTexel'), [1 / W, 1 / H]);
+  setUniform(gl, this._uloc(pass.program, pass.loc, 'uRes'), [W, H]);
+  setUniform(gl, this._uloc(pass.program, pass.loc, 'uTime'), time);
+  if (d.dir) setUniform(gl, this._uloc(pass.program, pass.loc, 'uDir'), d.dir);
+
+  gl.bindVertexArray(this.vao);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.bindVertexArray(null);
+};
+
+Pipeline.prototype.render = function (recipe, time) {
+  if (!this.ready || !this.rt) return 0;
+  const gl = this.gl;
+  let n = 0;
+
+  // 0) 输入归一化：cover 到画布尺寸 → rt[0]
+  gl.useProgram(this.coverProgram);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, this.rt[0].fbo);
+  gl.viewport(0, 0, this.canvasW, this.canvasH);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, this.srcTex);
+  gl.uniform1i(this._uloc(this.coverProgram, this.coverLoc, 'uTex'), 0);
+  setUniform(gl, this._uloc(this.coverProgram, this.coverLoc, 'uScale'), this.coverScale);
+  setUniform(gl, this._uloc(this.coverProgram, this.coverLoc, 'uOffset'), this.coverOffset);
+  gl.bindVertexArray(this.vao);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.bindVertexArray(null);
+  n++;
+
+  // 1) 按注册表顺序执行
+  let read = this.rt[0].tex;
+  let wi = 1;
+  this.bloomTex = null;
+
+  for (let i = 0; i < this.passes.length; i++) {
+    const p = this.passes[i];
+    if (!p.enabled || !p.program) continue;
+    const d = p.def;
+
+    if (d.kind === 'full') {
+      const dst = this.rt[wi];
+      this._draw(p, read, dst, recipe, time);
+      read = dst.tex;
+      wi ^= 1;
+      n++;
+    } else if (d.kind === 'aux') {
+      const src = d.readFrom === 'bloomA' ? this.auxA.tex
+                : d.readFrom === 'bloomB' ? this.auxB.tex
+                : read;
+      const dst = d.writeTo === 'bloomB' ? this.auxB : this.auxA;
+      this._draw(p, src, dst, recipe, time);
+      if (d.writeTo === 'bloomA') this.bloomTex = dst.tex;
+      n++;
+    } else {
+      this._draw(p, read, null, recipe, time);
+      n++;
+    }
+  }
+
+  this.lastPassCount = n;
+  return n;
+};
+
+const API = { Pipeline: Pipeline, PASS_DEFS: PASS_DEFS, FS: FS, VS: VS, PRELUDE: PRELUDE,
+              pick: pick, makeProgram: makeProgram, compile: compile };
+
+if (typeof module !== 'undefined' && module.exports) module.exports = API;
+root.PPFX_RENDER = API;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+
+/* ==================== src/app.js ==================== */
+/* ============================================================
+   app.js — 交互层
+   串联：提示词 → 解析层（looks.js） → 参数配方 → 管线（renderer.js）
+   并把"AI 决策了什么""管线由哪些 pass 组成""每个参数能不能手调"
+   全部摊在界面上。侧栏那串 JSON 是整个演示的转折点：
+   它让观众看见 AI 在做决策，而不是只看见一张变了的图。
+   ============================================================ */
+(function () {
+'use strict';
+
+/* ---------------- DOM ---------------- */
+const $ = function (id) { return document.getElementById(id); };
+const viewport = $('viewport');
+const view = $('view');
+const vctx = view.getContext('2d');
+const divider = $('divider');
+const hud = $('hud');
+const busy = $('busy');
+const toastEl = $('toast');
+const promptEl = $('prompt');
+const chipsEl = $('chips');
+const hitsEl = $('hits');
+const jsonEl = $('json');
+const flowEl = $('flow');
+const passesEl = $('passes');
+const engineEl = $('engine');
+const engineTag = $('engine-tag');
+const passStat = $('pass-stat');
+const llmCfg = $('llm-cfg');
+const llmBase = $('llm-base');
+const llmModel = $('llm-model');
+const llmHint = $('llm-hint');
+
+/* ---------------- 状态 ---------------- */
+let recipe = PPFX.baseRecipe();
+let meta = { engine: 'local', hits: [], mods: [] };
+let sourceCanvas = null;
+let sampleKind = 0;
+let split = 0.5;
+let dragging = false;
+let compareOn = true;
+let frameMs = 16.7, lastT = 0, lastHud = 0;
+let passCount = 0;
+
+const SHORT = { grade: '分级', bloomBright: '亮部', bloomBlurH: '模糊H', bloomBlurV: '模糊V',
+                edge: '描边', aberration: '色差', halftone: '网点', composite: '合成' };
+
+const PRESETS = [
+  '赛博朋克雨夜，霓虹辉光，颗粒感重',
+  '水墨写意山水，留白，宣纸质感',
+  '美式漫画网点，强描边，高对比',
+  '蒸汽波 90 年代，扫描线，紫粉色调',
+  '恐怖压抑，重暗角，低饱和',
+  '黄昏金色时刻，柔和辉光，胶片颗粒',
+  '故障艺术，色差撕裂，扫描线',
+  '黑白极简，灰阶，轻微颗粒'
+];
+
+/* ---------------- 管线实例 ---------------- */
+const passes = PPFX_RENDER.PASS_DEFS.map(function (d) {
+  return { def: d, enabled: true, program: null, loc: {}, broken: false };
+});
+
+const glCanvas = document.createElement('canvas');
+let pipeline = null;
+let glFail = '';
+
+try {
+  const gl = glCanvas.getContext('webgl2', {
+    antialias: false, alpha: false, depth: false, stencil: false,
+    premultipliedAlpha: false, preserveDrawingBuffer: true,
+    powerPreference: 'high-performance'
+  });
+  if (!gl) throw new Error('当前浏览器不支持 WebGL2');
+  pipeline = new PPFX_RENDER.Pipeline(gl, glCanvas, passes);
+} catch (e) {
+  glFail = e && e.message ? e.message : String(e);
+  pipeline = null;
+}
+
+/* ---------------- 工具 ---------------- */
+function setPath(obj, path, v) {
+  const parts = String(path).split('.');
+  let o = obj;
+  for (let i = 0; i < parts.length - 1; i++) o = o[parts[i]];
+  o[parts[parts.length - 1]] = v;
+}
+function fmt(v, step) {
+  const d = step < 0.01 ? 3 : step < 0.1 ? 2 : step < 1 ? 1 : 0;
+  return Number(v).toFixed(d);
+}
+function tidy(o) {
+  if (Array.isArray(o)) return o.map(function (v) { return typeof v === 'number' ? +v.toFixed(3) : v; });
+  if (o && typeof o === 'object') {
+    const out = {};
+    for (const k in o) out[k] = tidy(o[k]);
+    return out;
+  }
+  return typeof o === 'number' ? +o.toFixed(3) : o;
+}
+let toastTimer = 0;
+function showToast(msg) {
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () { toastEl.classList.remove('show'); }, 3200);
+}
+
+/* ---------------- 管线面板 ---------------- */
+const sliders = [];
+
+function buildPassUI() {
+  passesEl.innerHTML = '';
+  sliders.length = 0;
+
+  passes.forEach(function (p, i) {
+    const d = p.def;
+    const card = document.createElement('div');
+    card.className = 'pass';
+    card.dataset.id = d.id;
+
+    const head = document.createElement('label');
+    head.className = 'pass-head';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = p.enabled;
+    cb.disabled = !!p.broken;
+    const idx = document.createElement('span');
+    idx.className = 'pass-idx';
+    idx.textContent = ('0' + (i + 1)).slice(-2);
+    const nm = document.createElement('span');
+    nm.className = 'pass-name';
+    nm.textContent = d.name;
+    const de = document.createElement('span');
+    de.className = 'pass-desc';
+    de.textContent = p.broken ? '编译失败' : d.desc;
+    head.appendChild(cb); head.appendChild(idx); head.appendChild(nm); head.appendChild(de);
+    cb.addEventListener('change', function () {
+      p.enabled = cb.checked;
+      card.classList.toggle('off', !cb.checked);
+      syncFlow();
+    });
+    card.appendChild(head);
+    card.classList.toggle('off', !p.enabled);
+
+    if (d.params && d.params.length) {
+      const body = document.createElement('div');
+      body.className = 'pass-params';
+      d.params.forEach(function (pr) {
+        const wrap = document.createElement('div');
+        wrap.className = 'p';
+        const top = document.createElement('div');
+        top.className = 'p-top';
+        const lab = document.createElement('span');
+        lab.textContent = pr.label;
+        const val = document.createElement('b');
+        const rng = document.createElement('input');
+        rng.type = 'range';
+        rng.min = pr.min; rng.max = pr.max; rng.step = pr.step;
+        rng.addEventListener('input', function () {
+          const v = parseFloat(rng.value);
+          setPath(recipe, pr.path, v);
+          val.textContent = fmt(v, pr.step);
+          renderJSON();
+        });
+        top.appendChild(lab); top.appendChild(val);
+        wrap.appendChild(top); wrap.appendChild(rng);
+        body.appendChild(wrap);
+        sliders.push({ rng: rng, val: val, pr: pr });
+      });
+      card.appendChild(body);
+    }
+    passesEl.appendChild(card);
+  });
+}
+
+function syncSliders() {
+  sliders.forEach(function (s) {
+    const v = PPFX_RENDER.pick(recipe, s.pr.path);
+    if (typeof v === 'number') {
+      s.rng.value = Math.min(s.pr.max, Math.max(s.pr.min, v));
+      s.val.textContent = fmt(v, s.pr.step);
+    }
+  });
+}
+
+function syncPassUI() {
+  passes.forEach(function (p) {
+    const card = passesEl.querySelector('.pass[data-id="' + p.def.id + '"]');
+    if (!card) return;
+    card.classList.toggle('off', !p.enabled);
+    const cb = card.querySelector('input[type=checkbox]');
+    if (cb && !p.broken) cb.checked = p.enabled;
+  });
+}
+
+function syncFlow() {
+  flowEl.innerHTML = '';
+  const frag = document.createDocumentFragment();
+  passes.forEach(function (p, i) {
+    if (i) {
+      const em = document.createElement('em');
+      em.textContent = '›';
+      frag.appendChild(em);
+    }
+    const s = document.createElement('span');
+    s.textContent = SHORT[p.def.id] || p.def.id;
+    if (!p.enabled) s.className = 'off';
+    frag.appendChild(s);
+  });
+  flowEl.appendChild(frag);
+  const on = passes.filter(function (p) { return p.enabled; }).length;
+  passStat.textContent = on + ' / ' + passes.length + ' pass';
+}
+
+function renderJSON() {
+  jsonEl.textContent = JSON.stringify(tidy(recipe), null, 1);
+}
+
+function renderHits() {
+  hitsEl.innerHTML = '';
+  (meta.hits || []).forEach(function (h) {
+    const el = document.createElement('span');
+    el.className = 'hit';
+    el.textContent = h.name;
+    const i = document.createElement('i');
+    i.textContent = h.weight;
+    el.appendChild(i);
+    hitsEl.appendChild(el);
+  });
+  (meta.mods || []).forEach(function (m) {
+    const el = document.createElement('span');
+    el.className = 'hit m';
+    el.textContent = m.label;
+    if (m.times > 1) {
+      const i = document.createElement('i');
+      i.textContent = '×' + m.times;
+      el.appendChild(i);
+    }
+    hitsEl.appendChild(el);
+  });
+  if (!hitsEl.children.length) {
+    const el = document.createElement('span');
+    el.className = 'hit';
+    el.textContent = meta.engine === 'llm' ? 'LLM 直接输出' : '未命中关键词';
+    hitsEl.appendChild(el);
+  }
+}
+
+/* ---------------- 应用配方 ---------------- */
+function applyRecipe(r, m) {
+  recipe = r;
+  meta = m || { engine: 'local', hits: [], mods: [] };
+  if (pipeline && pipeline.ready) pipeline.autoEnable(recipe);
+  syncPassUI();
+  syncSliders();
+  syncFlow();
+  renderJSON();
+  renderHits();
+  engineTag.textContent = meta.engine === 'llm'
+    ? ('LLM · ' + (meta.model || ''))
+    : '本地词典';
+}
+
+/* ---------------- 绘制 ---------------- */
+function drawCover(ctx, img, W, H) {
+  const iw = img.width || img.naturalWidth;
+  const ih = img.height || img.naturalHeight;
+  if (!iw || !ih) return;
+  const sa = iw / ih, ta = W / H;
+  let dw, dh;
+  if (sa > ta) { dh = H; dw = H * sa; } else { dw = W; dh = W / sa; }
+  ctx.drawImage(img, (W - dw) / 2, (H - dh) / 2, dw, dh);
+}
+
+function drawView() {
+  const W = view.width, H = view.height;
+  vctx.clearRect(0, 0, W, H);
+  if (!compareOn) {
+    vctx.drawImage(glCanvas, 0, 0, W, H);
+    return;
+  }
+  const x = Math.round(split * W);
+  vctx.save();
+  vctx.beginPath(); vctx.rect(0, 0, x, H); vctx.clip();
+  if (sourceCanvas) drawCover(vctx, sourceCanvas, W, H);
+  vctx.restore();
+
+  vctx.save();
+  vctx.beginPath(); vctx.rect(x, 0, W - x, H); vctx.clip();
+  vctx.drawImage(glCanvas, 0, 0, W, H);
+  vctx.restore();
+}
+
+function updateHud() {
+  if (!pipeline || !pipeline.ready) {
+    hud.textContent = glFail ? 'WebGL 不可用' : '—';
+    return;
+  }
+  hud.textContent = pipeline.canvasW + '×' + pipeline.canvasH
+    + ' · ' + passCount + ' pass · ' + frameMs.toFixed(1) + ' ms'
+    + ' · ' + Math.round(1000 / Math.max(frameMs, 0.1)) + ' fps';
+}
+
+function syncSize() {
+  const r = viewport.getBoundingClientRect();
+  const cssW = Math.max(2, r.width), cssH = Math.max(2, r.height);
+  let scale = Math.min(window.devicePixelRatio || 1, 1.5);
+  let w = Math.round(cssW * scale), h = Math.round(cssH * scale);
+  const MAXP = 2.4e6;
+  if (w * h > MAXP) {
+    const k = Math.sqrt(MAXP / (w * h));
+    w = Math.round(w * k); h = Math.round(h * k);
+  }
+  view.width = w; view.height = h;
+  if (pipeline && pipeline.ready) pipeline.resize(w, h);
+}
+
+function loop(now) {
+  requestAnimationFrame(loop);
+  if (!pipeline || !pipeline.ready) return;
+  if (lastT) frameMs = frameMs * 0.9 + (now - lastT) * 0.1;
+  lastT = now;
+  passCount = pipeline.render(recipe, now / 1000);
+  drawView();
+  if (now - lastHud > 250) { lastHud = now; updateHud(); }
+}
+
+/* ---------------- 提示词 → 配方 ---------------- */
+async function runPrompt(text) {
+  const t = (text || promptEl.value || '').trim();
+  if (!t) { showToast('先写一句提示词'); return; }
+  busy.hidden = false;
+  try {
+    const out = await PPFX.resolveStyle(t, engineEl.value, {
+      base: llmBase.value.trim(), model: llmModel.value.trim()
+    });
+    applyRecipe(out.recipe, out.meta);
+    try { localStorage.setItem('ppfx.llm', JSON.stringify({ base: llmBase.value, model: llmModel.value })); } catch (e) {}
+    if (out.meta.note) showToast(out.meta.note);
+  } catch (e) {
+    showToast('解析失败：' + (e && e.message ? e.message : e));
+  } finally {
+    busy.hidden = true;
+  }
+}
+
+function buildChips() {
+  chipsEl.innerHTML = '';
+  PRESETS.forEach(function (p) {
+    const b = document.createElement('button');
+    b.className = 'chip';
+    b.textContent = p;
+    b.addEventListener('click', function () {
+      promptEl.value = p;
+      Array.prototype.forEach.call(chipsEl.children, function (c) { c.classList.remove('on'); });
+      b.classList.add('on');
+      runPrompt(p);
+    });
+    chipsEl.appendChild(b);
+  });
+}
+
+/* ---------------- 交互绑定 ---------------- */
+$('btn-run').addEventListener('click', function () { runPrompt(); });
+promptEl.addEventListener('keydown', function (e) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') runPrompt();
+});
+
+$('btn-sample').addEventListener('click', function () {
+  sampleKind = (sampleKind + 1) % 3;
+  sourceCanvas = PPFX_SAMPLE.makeSample(sampleKind, 1600, 900);
+  if (pipeline && pipeline.ready) pipeline.uploadSource(sourceCanvas);
+  showToast('示例图：' + (sourceCanvas.__name || sampleKind));
+});
+
+$('btn-upload').addEventListener('click', function () { $('file').click(); });
+$('file').addEventListener('change', function (ev) {
+  const f = ev.target.files && ev.target.files[0];
+  if (!f) return;
+  const img = new Image();
+  img.onload = function () {
+    const MAX = 2048;
+    const k = Math.min(1, MAX / Math.max(img.width, img.height));
+    const c = document.createElement('canvas');
+    c.width = Math.max(2, Math.round(img.width * k));
+    c.height = Math.max(2, Math.round(img.height * k));
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    sourceCanvas = c;
+    if (pipeline && pipeline.ready) pipeline.uploadSource(c);
+    showToast('已载入 ' + c.width + '×' + c.height);
+    URL.revokeObjectURL(img.src);
+  };
+  img.onerror = function () { showToast('图片读取失败'); };
+  img.src = URL.createObjectURL(f);
+  ev.target.value = '';
+});
+
+$('btn-export').addEventListener('click', function () {
+  if (!pipeline || !pipeline.ready) { showToast('渲染不可用，无法导出'); return; }
+  pipeline.render(recipe, performance.now() / 1000);
+  const a = document.createElement('a');
+  const name = String(recipe.name || 'style').replace(/[\\/:*?"<>|\s]+/g, '_');
+  a.href = glCanvas.toDataURL('image/png');
+  a.download = 'postfx_' + name + '.png';
+  a.click();
+});
+
+const btnCompare = $('btn-compare');
+btnCompare.addEventListener('click', function () {
+  compareOn = !compareOn;
+  btnCompare.classList.toggle('on', compareOn);
+  divider.style.display = compareOn ? '' : 'none';
+});
+
+divider.addEventListener('pointerdown', function (e) {
+  dragging = true;
+  try { divider.setPointerCapture(e.pointerId); } catch (err) {}
+  e.preventDefault();
+});
+divider.addEventListener('pointermove', function (e) {
+  if (!dragging) return;
+  const r = viewport.getBoundingClientRect();
+  split = Math.min(0.995, Math.max(0.005, (e.clientX - r.left) / r.width));
+  divider.style.left = (split * 100) + '%';
+});
+divider.addEventListener('pointerup', function (e) {
+  dragging = false;
+  try { divider.releasePointerCapture(e.pointerId); } catch (err) {}
+});
+
+engineEl.addEventListener('change', function () {
+  llmCfg.hidden = engineEl.value !== 'llm';
+});
+
+$('btn-test').addEventListener('click', async function () {
+  llmHint.className = 'hint';
+  llmHint.textContent = '连接中…';
+  try {
+    const ids = await PPFX.testLLM({ base: llmBase.value.trim(), model: llmModel.value.trim() });
+    llmHint.className = 'hint ok';
+    llmHint.textContent = '连接成功，可用模型 ' + ids.length + ' 个'
+      + (ids.length ? '：' + ids.slice(0, 3).join(' / ') : '');
+  } catch (e) {
+    llmHint.className = 'hint';
+    llmHint.textContent = '连接失败：' + (e && e.message ? e.message : e)
+      + '　不影响使用 —— 会自动回落到本地词典。';
+  }
+});
+
+if (window.ResizeObserver) {
+  new ResizeObserver(function () { syncSize(); }).observe(viewport);
+}
+window.addEventListener('resize', syncSize);
+
+/* ---------------- 启动 ---------------- */
+function boot() {
+  buildPassUI();
+  buildChips();
+  syncFlow();
+
+  try {
+    const saved = localStorage.getItem('ppfx.llm');
+    if (saved) {
+      const o = JSON.parse(saved);
+      if (o.base) llmBase.value = o.base;
+      if (o.model) llmModel.value = o.model;
+    }
+  } catch (e) {}
+
+  sourceCanvas = PPFX_SAMPLE.makeSample(0, 1600, 900);
+  syncSize();
+  if (pipeline && pipeline.ready) {
+    pipeline.uploadSource(sourceCanvas);
+    if (pipeline.errors.length) {
+      showToast('有 ' + pipeline.errors.length + ' 个 pass 编译失败，已自动禁用');
+      if (window.console) pipeline.errors.forEach(function (x) { console.error('[pass ' + x.pass + ']', x.message); });
+    }
+  } else {
+    hud.textContent = 'WebGL 不可用';
+    showToast('WebGL2 初始化失败：' + glFail);
+  }
+
+  applyRecipe(PPFX.parseLocal(promptEl.value).recipe, PPFX.parseLocal(promptEl.value).meta);
+  requestAnimationFrame(loop);
+}
+
+/* 自动化 / 验证钩子：无头环境下用来断言管线真的在按配方出图 */
+window.__PPFX__ = {
+  state: function () {
+    return {
+      glOk: !!(pipeline && pipeline.ready),
+      glFail: glFail,
+      canvas: pipeline && pipeline.ready ? [pipeline.canvasW, pipeline.canvasH] : null,
+      passCount: passCount,
+      errors: pipeline ? pipeline.errors : [],
+      passes: passes.map(function (p) { return { id: p.def.id, enabled: p.enabled, broken: p.broken }; }),
+      recipe: tidy(recipe),
+      name: recipe.name
+    };
+  },
+  apply: function (r) { applyRecipe(r, { engine: 'test', hits: [], mods: [] }); },
+  parse: function (t) { return PPFX.parseLocal(t); },
+  /* 渲染指定配方并返回 16×16 灰度签名 —— 用来断言"参数不同，出图不同" */
+  sig: function (r) {
+    if (r) applyRecipe(r, { engine: 'test', hits: [], mods: [] });
+    if (!pipeline || !pipeline.ready) return null;
+    pipeline.render(recipe, performance.now() / 1000);
+    const c = document.createElement('canvas');
+    c.width = 16; c.height = 16;
+    const x = c.getContext('2d');
+    x.drawImage(glCanvas, 0, 0, 16, 16);
+    const d = x.getImageData(0, 0, 16, 16).data;
+    const out = [];
+    let sum = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      const g = Math.round((d[i] + d[i + 1] + d[i + 2]) / 3);
+      out.push(g); sum += g;
+    }
+    return { px: out, mean: +(sum / out.length).toFixed(2) };
+  },
+  /* 以【固定时间】渲染并抓取 w×h 亮度阵列 —— 用于几何/量化分析。
+     必须显式传 t：故障类效果按 uTime 抖动，若这里用 performance.now()，
+     同一配方的两次抓取结果不可复现，隔离实验会得出随机结论。 */
+  grab: function (r, w, h, t) {
+    if (r) applyRecipe(r, { engine: 'test', hits: [], mods: [] });
+    if (!pipeline || !pipeline.ready) return null;
+    pipeline.render(recipe, (typeof t === 'number') ? t : 7.0);
+    const W = w || 240, H = h || 180;
+    const c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    const x = c.getContext('2d');
+    x.drawImage(glCanvas, 0, 0, W, H);
+    const d = x.getImageData(0, 0, W, H).data;
+    const lum = new Array(W * H);
+    let sum = 0;
+    for (let i = 0, j = 0; i < d.length; i += 4, j++) {
+      const g = (d[i] + d[i + 1] + d[i + 2]) / 3;
+      lum[j] = +g.toFixed(3); sum += g;
+    }
+    return { w: W, h: H, lum: lum, mean: +(sum / lum.length).toFixed(3) };
+  },
+  /* 原图的同规格签名 —— 用来断言"中性配方 == 原图"，即整条链没有偷偷改色 */
+  sourceSig: function () {
+    if (!sourceCanvas) return null;
+    const c = document.createElement('canvas');
+    c.width = 16; c.height = 16;
+    const x = c.getContext('2d');
+    // 必须复刻管线里的 cover 裁切，否则对比的是画面里两块不同的区域
+    const iw = sourceCanvas.width, ih = sourceCanvas.height;
+    const sa = iw / ih, ta = view.width / view.height;
+    let sx = 1, sy = 1;
+    if (sa > ta) sx = ta / sa; else sy = sa / ta;
+    const cw = iw * sx, ch = ih * sy;
+    x.drawImage(sourceCanvas, (iw - cw) / 2, (ih - ch) / 2, cw, ch, 0, 0, 16, 16);
+    const d = x.getImageData(0, 0, 16, 16).data;
+    const out = [];
+    let sum = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      const g = Math.round((d[i] + d[i + 1] + d[i + 2]) / 3);
+      out.push(g); sum += g;
+    }
+    return { px: out, mean: +(sum / out.length).toFixed(2) };
+  }
+};
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', boot);
+} else {
+  boot();
+}
+
+})();
+
+</script>
+</body>
+</html>
