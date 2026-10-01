@@ -35,19 +35,17 @@ def find_chrome():
 
 
 def find_node():
-    """Locate node. $NODE wins, then PATH, then a local managed install."""
+    """Locate node. $NODE wins, then PATH, then the usual Windows install dirs."""
     if os.environ.get('NODE') and os.path.exists(os.environ['NODE']):
         return os.environ['NODE']
     w = shutil.which('node')
     if w:
         return w
-    home = os.environ.get('USERPROFILE') or os.path.expanduser('~')
-    base = os.path.join(home, '.workbuddy', 'binaries', 'node', 'versions')
-    if os.path.isdir(base):
-        for v in sorted(os.listdir(base), reverse=True):
-            exe = os.path.join(base, v, 'node.exe')
-            if os.path.exists(exe):
-                return exe
+    for c in (r"C:\Program Files\nodejs\node.exe",
+              os.path.join(os.environ.get('LOCALAPPDATA', ''),
+                           'Programs', 'nodejs', 'node.exe')):
+        if c and os.path.exists(c):
+            return c
     return 'node'
 
 
